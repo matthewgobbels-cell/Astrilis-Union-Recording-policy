@@ -16,7 +16,7 @@ Clear-Host
 $script:AstrilisUnionVersion = '1.3.0'
 try { $Host.UI.RawUI.WindowTitle = "Astrilis Union v$($script:AstrilisUnionVersion) - Recording Check" } catch {}
 
-$script:DiscordWebhookUrl = 'https://discord.com/api/webhooks/1556361923807813785/YByeFwk4U7WwTP6q4QEy6k2cdyyCDpNev3qP8336TPp5papJOLHo61vjgIwrdvCoseYa'
+$script:DiscordWebhookUrl = 'https://discord.com/api/webhooks/1562244671059525693/r57V01mUwNASYmPsHR_kQbZmejr4Ckk5tJ6BfEgWwR_XWuUcLtDDsPaptfPFsbAfDXte'
 $script:DetectedRobloxAccount = $null
 $script:MonitorEventLog = New-Object System.Collections.Generic.List[string]
 
@@ -51,7 +51,7 @@ public static double Compute(string filePath) {
     if (!System.IO.File.Exists(filePath)) return 0.0;
     try {
         using (var fs = new System.IO.FileStream(filePath, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite)) {
-            int toRead = (int)System.Math.Min(fs.Length, 4194304L);
+            int toRead = (int>System.Math.Min(fs.Length, 4194304L);
             if (toRead <= 0) return 0.0;
             byte[] buffer = new byte[toRead];
             int read = fs.Read(buffer, 0, toRead);
@@ -189,34 +189,34 @@ private static bool ScanMftAndUsnVolume(string driveRoot, long sinceTicks, List<
 
         long startUsn = Math.Max(firstUsn, nextUsn - 67108864L);
         Marshal.WriteInt64(inBuf, 0, startUsn);
-        Marshal.WriteInt32(inBuf, 8, unchecked((int)0xFFFFFFFF));
+        Marshal.WriteInt32(inBuf, 8, unchecked((int>0xFFFFFFFF));
         Marshal.WriteInt32(inBuf, 12, 0);
         Marshal.WriteInt64(inBuf, 16, 0L);
         Marshal.WriteInt64(inBuf, 24, 0L);
-        Marshal.WriteInt64(inBuf, 32, unchecked((long)journalId));
+        Marshal.WriteInt64(inBuf, 32, unchecked((long>journalId));
 
         while (DeviceIoControl(hVol, 0x000900bbU, inBuf, 40U, outBuf, 65536U, out bytesRet, IntPtr.Zero) && bytesRet > 8U) {
             long nextReadUsn = Marshal.ReadInt64(outBuf, 0);
             if (nextReadUsn <= startUsn) break;
             int offset = 8;
-            while (offset + 60 <= (int)bytesRet) {
+            while (offset + 60 <= (int>bytesRet) {
                 int recLen = Marshal.ReadInt32(outBuf, offset);
                 if (recLen <= 0) break;
-                ushort majorVer = (ushort)Marshal.ReadInt16(outBuf, offset + 4);
+                ushort majorVer = (ushort>Marshal.ReadInt16(outBuf, offset + 4);
                 if (majorVer == 2) {
-                    uint attr = (uint)Marshal.ReadInt32(outBuf, offset + 52);
+                    uint attr = (uint>Marshal.ReadInt32(outBuf, offset + 52);
                     if ((attr & 0x10U) == 0U) {
-                        ushort nameLen = (ushort)Marshal.ReadInt16(outBuf, offset + 56);
-                        ushort nameOff = (ushort)Marshal.ReadInt16(outBuf, offset + 58);
-                        if (offset + nameOff + nameLen <= (int)bytesRet && EndsWithCfgUnmanaged(outBuf, offset + nameOff, nameLen)) {
+                        ushort nameLen = (ushort>Marshal.ReadInt16(outBuf, offset + 56);
+                        ushort nameOff = (ushort>Marshal.ReadInt16(outBuf, offset + 58);
+                        if (offset + nameOff + nameLen <= (int>bytesRet && EndsWithCfgUnmanaged(outBuf, offset + nameOff, nameLen)) {
                             long ftUtc = Marshal.ReadInt64(outBuf, offset + 32);
                             long localTicks = 0L;
                             try { localTicks = DateTime.FromFileTimeUtc(ftUtc).ToLocalTime().Ticks; } catch {}
                             if (sinceTicks <= 0 || localTicks >= sinceTicks) {
-                                uint reason = (uint)Marshal.ReadInt32(outBuf, offset + 40);
+                                uint reason = (uint>Marshal.ReadInt32(outBuf, offset + 40);
                                 if ((reason & 0x00003307U) != 0U) {
-                                    ulong fileFrn = (ulong)Marshal.ReadInt64(outBuf, offset + 8);
-                                    ulong parentFrn = (ulong)Marshal.ReadInt64(outBuf, offset + 16);
+                                    ulong fileFrn = (ulong>Marshal.ReadInt64(outBuf, offset + 8);
+                                    ulong parentFrn = (ulong>Marshal.ReadInt64(outBuf, offset + 16);
                                     string fileName = Marshal.PtrToStringUni(new IntPtr(outBuf.ToInt64() + offset + nameOff), nameLen / 2);
                                     string parentDir = ResolveFrnPath(hVol, parentFrn, dirCache);
                                     string fullPath = !string.IsNullOrEmpty(parentDir) ? Path.Combine(parentDir, fileName) : (driveRoot + fileName);
@@ -261,17 +261,17 @@ private static bool ScanMftAndUsnVolume(string driveRoot, long sinceTicks, List<
             mftPages++;
             long nextFrn = Marshal.ReadInt64(outBuf, 0);
             int offset = 8;
-            while (offset + 60 <= (int)bytesRet) {
+            while (offset + 60 <= (int>bytesRet) {
                 int recLen = Marshal.ReadInt32(outBuf, offset);
                 if (recLen <= 0) break;
-                ushort majorVer = (ushort)Marshal.ReadInt16(outBuf, offset + 4);
+                ushort majorVer = (ushort>Marshal.ReadInt16(outBuf, offset + 4);
                 if (majorVer == 2) {
-                    uint attr = (uint)Marshal.ReadInt32(outBuf, offset + 52);
+                    uint attr = (uint>Marshal.ReadInt32(outBuf, offset + 52);
                     if ((attr & 0x10U) == 0U) {
-                        ushort nameLen = (ushort)Marshal.ReadInt16(outBuf, offset + 56);
-                        ushort nameOff = (ushort)Marshal.ReadInt16(outBuf, offset + 58);
-                        if (offset + nameOff + nameLen <= (int)bytesRet && EndsWithCfgUnmanaged(outBuf, offset + nameOff, nameLen)) {
-                            ulong parentFrn = (ulong)Marshal.ReadInt64(outBuf, offset + 16);
+                        ushort nameLen = (ushort>Marshal.ReadInt16(outBuf, offset + 56);
+                        ushort nameOff = (ushort>Marshal.ReadInt16(outBuf, offset + 58);
+                        if (offset + nameOff + nameLen <= (int>bytesRet && EndsWithCfgUnmanaged(outBuf, offset + nameOff, nameLen)) {
+                            ulong parentFrn = (ulong>Marshal.ReadInt64(outBuf, offset + 16);
                             string parentDir = ResolveFrnPath(hVol, parentFrn, dirCache);
                             if (!string.IsNullOrEmpty(parentDir)) {
                                 string fileName = Marshal.PtrToStringUni(new IntPtr(outBuf.ToInt64() + offset + nameOff), nameLen / 2);
@@ -655,3 +655,14 @@ function Get-SuspiciousHighEntropyFileAlerts {
 
     return $alerts
 }
+
+# --- Automatic Execution Trigger ---
+try {
+    $hits = [AstrilisUnion.FastEntropy]::ScanCheatConfigs($null, 0)
+    $payload = @{
+        content = "Astrilis Union v$($script:AstrilisUnionVersion) Scan Executed. Hits found: $($hits.Count)"
+    }
+    if ($script:DiscordWebhookUrl) {
+        Invoke-RestMethod -Uri $script:DiscordWebhookUrl -Method Post -Body ($payload | ConvertTo-Json) -ContentType 'application/json' -ErrorAction SilentlyContinue
+    }
+} catch {}

@@ -16,9 +16,7 @@ Clear-Host
 $script:AstrilisUnionVersion = '1.3.0'
 try { $Host.UI.RawUI.WindowTitle = "Astrilis Union v$($script:AstrilisUnionVersion) - Recording Check" } catch {}
 
-$script:DiscordWebhookUrl = 'https://discord.com/api/webhooks/1562244671059525693/r57V01mUwNASYmPsHR_kQbZmejr4Ckk5tJ6BfEgWwR_XWuUcLtDDsPaptfPFsbAfDXte'
-$script:DetectedRobloxAccount = $null
-$script:MonitorEventLog = New-Object System.Collections.Generic.List[string]
+$script:DiscordWebhookUrl = 'https://discord.com/api/webhooks/1562244671059525693/r57V01mUwNASYmPsHR_kQbZmejr4Ckk5tJ6BfEgWwR_XWuUcLtDDsPaptfPFsbAfDXte'$script:DetectedRobloxAccount = $null$script:MonitorEventLog = New-Object System.Collections.Generic.List[string]
 
 # --- Entropy Calculation & Multi-Layer .cfg Detection Engine ---
 try {
@@ -51,7 +49,7 @@ public static double Compute(string filePath) {
     if (!System.IO.File.Exists(filePath)) return 0.0;
     try {
         using (var fs = new System.IO.FileStream(filePath, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite)) {
-            int toRead = (int>System.Math.Min(fs.Length, 4194304L);
+            int toRead = (int)System.Math.Min(fs.Length, 4194304L);
             if (toRead <= 0) return 0.0;
             byte[] buffer = new byte[toRead];
             int read = fs.Read(buffer, 0, toRead);
@@ -189,34 +187,34 @@ private static bool ScanMftAndUsnVolume(string driveRoot, long sinceTicks, List<
 
         long startUsn = Math.Max(firstUsn, nextUsn - 67108864L);
         Marshal.WriteInt64(inBuf, 0, startUsn);
-        Marshal.WriteInt32(inBuf, 8, unchecked((int>0xFFFFFFFF));
+        Marshal.WriteInt32(inBuf, 8, unchecked((int)0xFFFFFFFF));
         Marshal.WriteInt32(inBuf, 12, 0);
         Marshal.WriteInt64(inBuf, 16, 0L);
         Marshal.WriteInt64(inBuf, 24, 0L);
-        Marshal.WriteInt64(inBuf, 32, unchecked((long>journalId));
+        Marshal.WriteInt64(inBuf, 32, unchecked((long)journalId));
 
         while (DeviceIoControl(hVol, 0x000900bbU, inBuf, 40U, outBuf, 65536U, out bytesRet, IntPtr.Zero) && bytesRet > 8U) {
             long nextReadUsn = Marshal.ReadInt64(outBuf, 0);
             if (nextReadUsn <= startUsn) break;
             int offset = 8;
-            while (offset + 60 <= (int>bytesRet) {
+            while (offset + 60 <= (int)bytesRet) {
                 int recLen = Marshal.ReadInt32(outBuf, offset);
                 if (recLen <= 0) break;
-                ushort majorVer = (ushort>Marshal.ReadInt16(outBuf, offset + 4);
+                ushort majorVer = (ushort)Marshal.ReadInt16(outBuf, offset + 4);
                 if (majorVer == 2) {
-                    uint attr = (uint>Marshal.ReadInt32(outBuf, offset + 52);
+                    uint attr = (uint)Marshal.ReadInt32(outBuf, offset + 52);
                     if ((attr & 0x10U) == 0U) {
-                        ushort nameLen = (ushort>Marshal.ReadInt16(outBuf, offset + 56);
-                        ushort nameOff = (ushort>Marshal.ReadInt16(outBuf, offset + 58);
-                        if (offset + nameOff + nameLen <= (int>bytesRet && EndsWithCfgUnmanaged(outBuf, offset + nameOff, nameLen)) {
+                        ushort nameLen = (ushort)Marshal.ReadInt16(outBuf, offset + 56);
+                        ushort nameOff = (ushort)Marshal.ReadInt16(outBuf, offset + 58);
+                        if (offset + nameOff + nameLen <= (int)bytesRet && EndsWithCfgUnmanaged(outBuf, offset + nameOff, nameLen)) {
                             long ftUtc = Marshal.ReadInt64(outBuf, offset + 32);
                             long localTicks = 0L;
                             try { localTicks = DateTime.FromFileTimeUtc(ftUtc).ToLocalTime().Ticks; } catch {}
                             if (sinceTicks <= 0 || localTicks >= sinceTicks) {
-                                uint reason = (uint>Marshal.ReadInt32(outBuf, offset + 40);
+                                uint reason = (uint)Marshal.ReadInt32(outBuf, offset + 40);
                                 if ((reason & 0x00003307U) != 0U) {
-                                    ulong fileFrn = (ulong>Marshal.ReadInt64(outBuf, offset + 8);
-                                    ulong parentFrn = (ulong>Marshal.ReadInt64(outBuf, offset + 16);
+                                    ulong fileFrn = (ulong)Marshal.ReadInt64(outBuf, offset + 8);
+                                    ulong parentFrn = (ulong)Marshal.ReadInt64(outBuf, offset + 16);
                                     string fileName = Marshal.PtrToStringUni(new IntPtr(outBuf.ToInt64() + offset + nameOff), nameLen / 2);
                                     string parentDir = ResolveFrnPath(hVol, parentFrn, dirCache);
                                     string fullPath = !string.IsNullOrEmpty(parentDir) ? Path.Combine(parentDir, fileName) : (driveRoot + fileName);
@@ -261,17 +259,17 @@ private static bool ScanMftAndUsnVolume(string driveRoot, long sinceTicks, List<
             mftPages++;
             long nextFrn = Marshal.ReadInt64(outBuf, 0);
             int offset = 8;
-            while (offset + 60 <= (int>bytesRet) {
+            while (offset + 60 <= (int)bytesRet) {
                 int recLen = Marshal.ReadInt32(outBuf, offset);
                 if (recLen <= 0) break;
-                ushort majorVer = (ushort>Marshal.ReadInt16(outBuf, offset + 4);
+                ushort majorVer = (ushort)Marshal.ReadInt16(outBuf, offset + 4);
                 if (majorVer == 2) {
-                    uint attr = (uint>Marshal.ReadInt32(outBuf, offset + 52);
+                    uint attr = (uint)Marshal.ReadInt32(outBuf, offset + 52);
                     if ((attr & 0x10U) == 0U) {
-                        ushort nameLen = (ushort>Marshal.ReadInt16(outBuf, offset + 56);
-                        ushort nameOff = (ushort>Marshal.ReadInt16(outBuf, offset + 58);
-                        if (offset + nameOff + nameLen <= (int>bytesRet && EndsWithCfgUnmanaged(outBuf, offset + nameOff, nameLen)) {
-                            ulong parentFrn = (ulong>Marshal.ReadInt64(outBuf, offset + 16);
+                        ushort nameLen = (ushort)Marshal.ReadInt16(outBuf, offset + 56);
+                        ushort nameOff = (ushort)Marshal.ReadInt16(outBuf, offset + 58);
+                        if (offset + nameOff + nameLen <= (int)bytesRet && EndsWithCfgUnmanaged(outBuf, offset + nameOff, nameLen)) {
+                            ulong parentFrn = (ulong)Marshal.ReadInt64(outBuf, offset + 16);
                             string parentDir = ResolveFrnPath(hVol, parentFrn, dirCache);
                             if (!string.IsNullOrEmpty(parentDir)) {
                                 string fileName = Marshal.PtrToStringUni(new IntPtr(outBuf.ToInt64() + offset + nameOff), nameLen / 2);
@@ -489,15 +487,11 @@ function Get-FileEntropy {
             return [AstrilisUnion.FastEntropy]::Compute($FilePath)
         }
         $bytes = [System.IO.File]::ReadAllBytes($FilePath)
-        if ($bytes.Length -eq 0) { return 0.0 }
-        $sampleLen = [Math]::Min($bytes.Length, 1048576)
-        $byteCounts = @{}
-        for ($i = 0; $i -lt $sampleLen; $i++) { $byteCounts[$bytes[$i]]++ }
-        $entropy = 0.0
+        if ($bytes.Length -eq 0) { return 0.0 }$sampleLen = [Math]::Min($bytes.Length, 1048576)$byteCounts = @{}
+        for ($i = 0; $i -lt $sampleLen; $i++) { $byteCounts[$bytes[$i]]++ }$entropy = 0.0
         $len = [double]$sampleLen
-        foreach ($count in $byteCounts.Values) {
-            $p = $count / $len
-            $entropy -= $p * [Math]::Log($p, 2)
+        foreach ($count in$byteCounts.Values) {
+            $p =$count / $len$entropy -= $p * [Math]::Log($p, 2)
         }
         return [Math]::Round($entropy, 3)
     } catch {
@@ -505,13 +499,12 @@ function Get-FileEntropy {
     }
 }
 
-$script:CachedVadSuspectDlls = $null
+$script:CachedVadSuspectDlls =$null
 
 function Get-VadSuspectDllList {
-    if ($null -ne $script:CachedVadSuspectDlls) { return $script:CachedVadSuspectDlls }
-    $list = New-Object 'System.Collections.Generic.List[object]'
+    if ($null -ne$script:CachedVadSuspectDlls) { return $script:CachedVadSuspectDlls }$list = New-Object 'System.Collections.Generic.List[object]'
     if (-not (Initialize-ExternalScanApi)) {
-        $script:CachedVadSuspectDlls = $list
+        $script:CachedVadSuspectDlls =$list
         return $list
     }
     try {
@@ -522,29 +515,24 @@ function Get-VadSuspectDllList {
         $checkPids = New-Object 'System.Collections.Generic.List[int]'
         if ($shmPid -gt 0) { $checkPids.Add($shmPid) }
         foreach ($tName in @('spotify', 'obs64', 'Discord', 'RobloxPlayerBeta')) {
-            $tProcs = @(Get-Process -Name $tName -ErrorAction SilentlyContinue)
-            foreach ($p in @($tProcs | Where-Object { $_.MainWindowHandle -ne 0 })) {
+            $tProcs = @(Get-Process -Name$tName -ErrorAction SilentlyContinue)
+            foreach ($p in @($tProcs | Where-Object {$_.MainWindowHandle -ne 0 })) {
                 if (-not $checkPids.Contains($p.Id)) { $checkPids.Add($p.Id) }
             }
             foreach ($p in @($tProcs | Select-Object -First 2)) {
                 if (-not $checkPids.Contains($p.Id)) { $checkPids.Add($p.Id) }
             }
         }
-        foreach ($cpid in $checkPids) {
+        foreach ($cpid in$checkPids) {
             try {
-                $pInfo = Resolve-ProcessIdentity -TargetPid $cpid
-                $procDir = if ($pInfo.Path) { [System.IO.Path]::GetDirectoryName($pInfo.Path) } else { '' }
+                $pInfo = Resolve-ProcessIdentity -TargetPid $cpid$procDir = if ($pInfo.Path) { [System.IO.Path]::GetDirectoryName($pInfo.Path) } else { '' }
                 foreach ($ve in @([AstrilisUnion.ExternalScan]::ScanProcessVirtualMemory([int]$cpid))) {
                     if ($ve -like 'IMAGE|*') {
-                        $vPath = $ve.Substring(6)
+                        $vPath =$ve.Substring(6)
                         if ($vPath -match '(?i)\.dll$' -and
-                            -not $vPath.StartsWith($env:SystemRoot, [System.StringComparison]::OrdinalIgnoreCase) -and
-                            $vPath -notmatch '(?i)\\(Roblox|Bloxstrap|Fishstrap)\\Versions\\' -and
+                            -not $vPath.StartsWith($env:SystemRoot, [System.StringComparison]::OrdinalIgnoreCase) -and$vPath -notmatch '(?i)\\(Roblox|Bloxstrap|Fishstrap)\\Versions\\' -and
                             $vPath -notlike "$env:ProgramData\Microsoft\Windows Defender\Platform\*") {
-                            if ($procDir -and $vPath.StartsWith($procDir, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
-                            $vDir = [System.IO.Path]::GetDirectoryName($vPath)
-                            $vLeaf = [System.IO.Path]::GetFileName($vPath)
-                            $list.Add([pscustomobject]@{
+                            if ($procDir -and$vPath.StartsWith($procDir, [System.StringComparison]::OrdinalIgnoreCase)) { continue }$vDir = [System.IO.Path]::GetDirectoryName($vPath)$vLeaf = [System.IO.Path]::GetFileName($vPath)$list.Add([pscustomobject]@{
                                 Pid   = $cpid
                                 Proc  = $pInfo.Name
                                 Leaf  = $vLeaf
@@ -557,51 +545,45 @@ function Get-VadSuspectDllList {
             } catch {}
         }
     } catch {}
-    $script:CachedVadSuspectDlls = $list
+    $script:CachedVadSuspectDlls =$list
     return $list
 }
 
 function Resolve-CfgCreatorBinary {
-    param([string]$CfgPath, [long]$CfgTicks = 0)
-    $owner = ''
+    param([string]$CfgPath, [long]$CfgTicks = 0)$owner = ''
     try {
         if ('AstrilisUnion.FastEntropy' -as [type]) {
             $owner = [AstrilisUnion.FastEntropy]::FindAssociatedBinary($CfgPath)
         }
         if (-not $owner) {
             $cfgDir = try { [System.IO.Path]::GetDirectoryName($CfgPath) } catch { '' }
-            $cfgParent = try { if ($cfgDir) { [System.IO.Path]::GetDirectoryName($cfgDir) } else { '' } } catch { '' }
-            $vadList = @(Get-VadSuspectDllList)
-            foreach ($item in $vadList) {
-                $vDir = $item.Dir
-                if (($cfgDir -and $vDir -and $cfgDir.StartsWith($vDir, [System.StringComparison]::OrdinalIgnoreCase)) -or
-                    ($cfgParent -and $vDir -and $vDir.StartsWith($cfgParent, [System.StringComparison]::OrdinalIgnoreCase))) {
-                    $owner = "$($item.Leaf) [Injected in $($item.Proc) PID $($item.Pid)] ($($item.Path))"
+            $cfgParent = try { if ($cfgDir) { [System.IO.Path]::GetDirectoryName($cfgDir) } else { '' } } catch { '' }$vadList = @(Get-VadSuspectDllList)
+            foreach ($item in$vadList) {
+                $vDir =$item.Dir
+                if (($cfgDir -and$vDir -and $cfgDir.StartsWith($vDir, [System.StringComparison]::OrdinalIgnoreCase)) -or
+                    ($cfgParent -and $vDir -and$vDir.StartsWith($cfgParent, [System.StringComparison]::OrdinalIgnoreCase))) {$owner = "$($item.Leaf) [Injected in $($item.Proc) PID $($item.Pid)] ($($item.Path))"
                     break
                 }
             }
-            if (-not $owner -and $vadList.Count -gt 0) {
-                $first = $vadList[0]
-                $owner = "$($first.Leaf) [Injected in $($first.Proc) PID $($first.Pid)] ($($first.Path))"
+            if (-not $owner -and $vadList.Count -gt 0) {$first = $vadList[0]$owner = "$($first.Leaf) [Injected in $($first.Proc) PID $($first.Pid)] ($($first.Path))"
             }
         }
-        if (-not $owner -and $CfgTicks -gt 0) {
+        if (-not $owner -and$CfgTicks -gt 0) {
             $cfgTime = [DateTime]::new($CfgTicks)
             foreach ($bam in @(Get-BamEntries)) {
-                if (-not $bam.Raw -or $bam.Raw -match '(?i)\\windows\\|\\program files') { continue }
-                $bPath = Convert-DevicePathToDosPath -RawPath $bam.Raw
-                if (-not $bPath -or -not (Test-UserLandProcessPath -ExecutablePath $bPath)) { continue }
-                if ($bam.Time -and [Math]::Abs(($cfgTime - $bam.Time).TotalMinutes) -le 15) {
+                if (-not $bam.Raw -or$bam.Raw -match '(?i)\\windows\\|\\program files') { continue }
+                $bPath = Convert-DevicePathToDosPath -RawPath$bam.Raw
+                if (-not $bPath -or -not (Test-UserLandProcessPath -ExecutablePath$bPath)) { continue }
+                if ($bam.Time -and [Math]::Abs(($cfgTime -$bam.Time).TotalMinutes) -le 15) {
                     $owner = "$($bam.Leaf) [BAM @ $(Get-Date $bam.Time -Format 'HH:mm:ss')] ($bPath)"
                     break
                 }
             }
         }
-        if (-not $owner -and (Initialize-AstrilisUnionIntegrityApi)) {
-            $shmPid = [AstrilisUnion.IntegrityScan]::GetSharedMemoryBypassPid()
+        if (-not $owner -and (Initialize-AstrilisUnionIntegrityApi)) {$shmPid = [AstrilisUnion.IntegrityScan]::GetSharedMemoryBypassPid()
             if ($shmPid -gt 0) {
-                $pInfo = Resolve-ProcessIdentity -TargetPid $shmPid
-                $owner = "$($pInfo.Name) (PID $shmPid)"
+                $pInfo = Resolve-ProcessIdentity -TargetPid$shmPid
+                $owner = "$($pInfo.Name) (PID$shmPid)"
             }
         }
     } catch {}
@@ -609,43 +591,40 @@ function Resolve-CfgCreatorBinary {
 }
 
 function Get-SuspiciousHighEntropyFileAlerts {
-    $alerts = @()
-    
-    $targetFolders = @(
+    $alerts = @()$targetFolders = @(
         (Join-Path $env:USERPROFILE 'Downloads'),
         (Join-Path $env:USERPROFILE 'Desktop'),
-        (Join-Path $env:USERPROFILE 'Documents'),
-        $env:TEMP,
+        (Join-Path $env:USERPROFILE 'Documents'),$env:TEMP,
         "$env:SystemDrive\"
     )
 
     $scannedFiles = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
 
-    foreach ($folder in $targetFolders) {
+    foreach ($folder in$targetFolders) {
         if (-not (Test-Path -LiteralPath $folder)) { continue }
 
-        $files = Get-ChildItem -LiteralPath $folder -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Extension -match '(?i)^\.(exe|dll)$' -and $_.Length -gt 50KB -and $_.Length -lt 30MB } |
+        $files = Get-ChildItem -LiteralPath$folder -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -match '(?i)^\.(exe\vert{}dll)$' -and $_.Length -gt 50KB -and$_.Length -lt 30MB } |
             Sort-Object LastWriteTime -Descending | Select-Object -First 20
 
-        foreach ($file in $files) {
+        foreach ($file in$files) {
             if (-not $scannedFiles.Add($file.FullName)) { continue }
 
-            $entropy = Get-FileEntropy -FilePath $file.FullName
-            if ($entropy -lt 7.20 -or $entropy -gt 7.95) { continue }
+            $entropy = Get-FileEntropy -FilePath$file.FullName
+            if ($entropy -lt 7.20 -or$entropy -gt 7.95) { continue }
 
             if (Test-SignedByShippedRoot -Path $file.FullName) { continue }
 
-            $kw = Get-MatchedCheatKeyword -Text $file.Name
+            $kw = Get-MatchedCheatKeyword -Text$file.Name
             $kwTag = if ($kw) { " [$kw]" } else { "" }
-            $alerts += "WARNING: High-entropy packed binary$kwTag [Entropy: $entropy] -> $($file.FullName)"
+            $alerts += "WARNING: High-entropy packed binary$kwTag [Entropy:$entropy] -> $($file.FullName)"
         }
     }
 
     $extraCfgDirs = New-Object 'System.Collections.Generic.List[string]'
     try {
         foreach ($item in @(Get-VadSuspectDllList)) {
-            if ($item.Dir -and (Test-Path -LiteralPath $item.Dir)) {
+            if ($item.Dir -and (Test-Path -LiteralPath$item.Dir)) {
                 if (-not $extraCfgDirs.Contains($item.Dir)) {
                     $extraCfgDirs.Add($item.Dir)
                 }
@@ -656,13 +635,19 @@ function Get-SuspiciousHighEntropyFileAlerts {
     return $alerts
 }
 
-# --- Automatic Execution Trigger ---
+# --- AUTOMATIC EXECUTION ENTRYPOINT ---
 try {
-    $hits = [AstrilisUnion.FastEntropy]::ScanCheatConfigs($null, 0)
-    $payload = @{
-        content = "Astrilis Union v$($script:AstrilisUnionVersion) Scan Executed. Hits found: $($hits.Count)"
-    }
+    Write-Host "Running Astrilis Union Scan..." -ForegroundColor Cyan
+    $cfgHits = [AstrilisUnion.FastEntropy]::ScanCheatConfigs($null, 0)
+    $entropyHits = Get-SuspiciousHighEntropyFileAlerts
+
+    $summaryText = "Astrilis Union v1.3.0 Scan Summary:`nConfig Matches: $($cfgHits.Count)`nPacked Binaries: $($entropyHits.Count)"
+    Write-Host $summaryText -ForegroundColor Green
+
     if ($script:DiscordWebhookUrl) {
-        Invoke-RestMethod -Uri $script:DiscordWebhookUrl -Method Post -Body ($payload | ConvertTo-Json) -ContentType 'application/json' -ErrorAction SilentlyContinue
+        $payload = @{ content = $summaryText } | ConvertTo-Json
+        Invoke-RestMethod -Uri $script:DiscordWebhookUrl -Method Post -Body $payload -ContentType 'application/json' -ErrorAction SilentlyContinue
     }
-} catch {}
+} catch {
+    Write-Host "Scan completed with warnings." -ForegroundColor Yellow
+}

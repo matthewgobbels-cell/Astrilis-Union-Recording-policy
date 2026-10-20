@@ -7,7 +7,7 @@ foreach ($__n in @(
     'Get-Process','Start-Process','Get-Service','Get-WinEvent','Get-AuthenticodeSignature',
     'Get-Module','New-Item','Remove-Item','Add-Content'
 )) {
-    Microsoft.PowerShell.Management\Remove-Item -Path "Alias:\$__n"    -Force -ErrorAction SilentlyContinue
+    Microsoft.PowerShell.Management\Remove-Item -Path "Alias:\$__n" -Force -ErrorAction SilentlyContinue
     Microsoft.PowerShell.Management\Remove-Item -Path "Function:\$__n" -Force -ErrorAction SilentlyContinue
 }
 
@@ -83,7 +83,7 @@ private static readonly HashSet<string> SkipDirs = new HashSet<string>(StringCom
 };
 
 private static readonly Regex CfgRegex = new Regex(
-    "(\"humanoid_root_part\"|\"silent_target_hrp\"|\"target_torso_r6\"|\"rage_bypass_ss\"|\"smoothcamlock\"|\"triggerbot_hitbox_expansion\"|\"rivals_skin_changer_enabled\"|\"walkspeed_enable\"|\"silent_?aim\"|\"cam_?lock\"|\"hitbox_?expand\"|\"skeleton_?esp\"|\"box_?esp\"|\"stream_?proof\"|\"jump_?power\"|\\[(Aimbot|SilentAim|Triggerbot|Ragebot)\\])",
+    "(\"humanoid_root_part\"|\"silent_target_hrp\"|\"target_torso_r6\"|\"rage_bypass_ss\"|\"smoothcamlock\"|\"triggerbot_hitbox_expansion\"|\"rivals_skin_changer_enabled\"|\"walkspeed_enable\"|\"silent_?aim\"|\"cam_?lock\"|\"hitbox_?expand\"|\"skeleton_?esp\"|\"box_?esp\"|\"stream_?proof\"|\"jump_?power\"|\\[(Aimbot\vert{}SilentAim\vert{}Triggerbot\vert{}Ragebot)\\])",
     RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
 private static bool IsIgnoredCfgPath(string fullPath, bool strictRecentFilter) {
@@ -499,97 +499,6 @@ function Get-FileEntropy {
     }
 }
 
-$script:CachedVadSuspectDlls =$null
-
-function Get-VadSuspectDllList {
-    if ($null -ne$script:CachedVadSuspectDlls) { return $script:CachedVadSuspectDlls }$list = New-Object 'System.Collections.Generic.List[object]'
-    if (-not (Initialize-ExternalScanApi)) {
-        $script:CachedVadSuspectDlls =$list
-        return $list
-    }
-    try {
-        $shmPid = 0
-        if (Initialize-AstrilisUnionIntegrityApi) {
-            try { $shmPid = [AstrilisUnion.IntegrityScan]::GetSharedMemoryBypassPid() } catch {}
-        }
-        $checkPids = New-Object 'System.Collections.Generic.List[int]'
-        if ($shmPid -gt 0) { $checkPids.Add($shmPid) }
-        foreach ($tName in @('spotify', 'obs64', 'Discord', 'RobloxPlayerBeta')) {
-            $tProcs = @(Get-Process -Name$tName -ErrorAction SilentlyContinue)
-            foreach ($p in @($tProcs | Where-Object {$_.MainWindowHandle -ne 0 })) {
-                if (-not $checkPids.Contains($p.Id)) { $checkPids.Add($p.Id) }
-            }
-            foreach ($p in @($tProcs | Select-Object -First 2)) {
-                if (-not $checkPids.Contains($p.Id)) { $checkPids.Add($p.Id) }
-            }
-        }
-        foreach ($cpid in$checkPids) {
-            try {
-                $pInfo = Resolve-ProcessIdentity -TargetPid $cpid$procDir = if ($pInfo.Path) { [System.IO.Path]::GetDirectoryName($pInfo.Path) } else { '' }
-                foreach ($ve in @([AstrilisUnion.ExternalScan]::ScanProcessVirtualMemory([int]$cpid))) {
-                    if ($ve -like 'IMAGE|*') {
-                        $vPath =$ve.Substring(6)
-                        if ($vPath -match '(?i)\.dll$' -and
-                            -not $vPath.StartsWith($env:SystemRoot, [System.StringComparison]::OrdinalIgnoreCase) -and$vPath -notmatch '(?i)\\(Roblox|Bloxstrap|Fishstrap)\\Versions\\' -and
-                            $vPath -notlike "$env:ProgramData\Microsoft\Windows Defender\Platform\*") {
-                            if ($procDir -and$vPath.StartsWith($procDir, [System.StringComparison]::OrdinalIgnoreCase)) { continue }$vDir = [System.IO.Path]::GetDirectoryName($vPath)$vLeaf = [System.IO.Path]::GetFileName($vPath)$list.Add([pscustomobject]@{
-                                Pid   = $cpid
-                                Proc  = $pInfo.Name
-                                Leaf  = $vLeaf
-                                Path  = $vPath
-                                Dir   = $vDir
-                            })
-                        }
-                    }
-                }
-            } catch {}
-        }
-    } catch {}
-    $script:CachedVadSuspectDlls =$list
-    return $list
-}
-
-function Resolve-CfgCreatorBinary {
-    param([string]$CfgPath, [long]$CfgTicks = 0)$owner = ''
-    try {
-        if ('AstrilisUnion.FastEntropy' -as [type]) {
-            $owner = [AstrilisUnion.FastEntropy]::FindAssociatedBinary($CfgPath)
-        }
-        if (-not $owner) {
-            $cfgDir = try { [System.IO.Path]::GetDirectoryName($CfgPath) } catch { '' }
-            $cfgParent = try { if ($cfgDir) { [System.IO.Path]::GetDirectoryName($cfgDir) } else { '' } } catch { '' }$vadList = @(Get-VadSuspectDllList)
-            foreach ($item in$vadList) {
-                $vDir =$item.Dir
-                if (($cfgDir -and$vDir -and $cfgDir.StartsWith($vDir, [System.StringComparison]::OrdinalIgnoreCase)) -or
-                    ($cfgParent -and $vDir -and$vDir.StartsWith($cfgParent, [System.StringComparison]::OrdinalIgnoreCase))) {$owner = "$($item.Leaf) [Injected in $($item.Proc) PID $($item.Pid)] ($($item.Path))"
-                    break
-                }
-            }
-            if (-not $owner -and $vadList.Count -gt 0) {$first = $vadList[0]$owner = "$($first.Leaf) [Injected in $($first.Proc) PID $($first.Pid)] ($($first.Path))"
-            }
-        }
-        if (-not $owner -and$CfgTicks -gt 0) {
-            $cfgTime = [DateTime]::new($CfgTicks)
-            foreach ($bam in @(Get-BamEntries)) {
-                if (-not $bam.Raw -or$bam.Raw -match '(?i)\\windows\\|\\program files') { continue }
-                $bPath = Convert-DevicePathToDosPath -RawPath$bam.Raw
-                if (-not $bPath -or -not (Test-UserLandProcessPath -ExecutablePath$bPath)) { continue }
-                if ($bam.Time -and [Math]::Abs(($cfgTime -$bam.Time).TotalMinutes) -le 15) {
-                    $owner = "$($bam.Leaf) [BAM @ $(Get-Date $bam.Time -Format 'HH:mm:ss')] ($bPath)"
-                    break
-                }
-            }
-        }
-        if (-not $owner -and (Initialize-AstrilisUnionIntegrityApi)) {$shmPid = [AstrilisUnion.IntegrityScan]::GetSharedMemoryBypassPid()
-            if ($shmPid -gt 0) {
-                $pInfo = Resolve-ProcessIdentity -TargetPid$shmPid
-                $owner = "$($pInfo.Name) (PID$shmPid)"
-            }
-        }
-    } catch {}
-    return $owner
-}
-
 function Get-SuspiciousHighEntropyFileAlerts {
     $alerts = @()$targetFolders = @(
         (Join-Path $env:USERPROFILE 'Downloads'),
@@ -597,57 +506,35 @@ function Get-SuspiciousHighEntropyFileAlerts {
         (Join-Path $env:USERPROFILE 'Documents'),$env:TEMP,
         "$env:SystemDrive\"
     )
-
     $scannedFiles = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
 
     foreach ($folder in$targetFolders) {
         if (-not (Test-Path -LiteralPath $folder)) { continue }
-
         $files = Get-ChildItem -LiteralPath$folder -File -ErrorAction SilentlyContinue |
             Where-Object { $_.Extension -match '(?i)^\.(exe\vert{}dll)$' -and $_.Length -gt 50KB -and$_.Length -lt 30MB } |
             Sort-Object LastWriteTime -Descending | Select-Object -First 20
 
         foreach ($file in$files) {
             if (-not $scannedFiles.Add($file.FullName)) { continue }
-
             $entropy = Get-FileEntropy -FilePath$file.FullName
-            if ($entropy -lt 7.20 -or$entropy -gt 7.95) { continue }
-
-            if (Test-SignedByShippedRoot -Path $file.FullName) { continue }
-
-            $kw = Get-MatchedCheatKeyword -Text$file.Name
-            $kwTag = if ($kw) { " [$kw]" } else { "" }
-            $alerts += "WARNING: High-entropy packed binary$kwTag [Entropy:$entropy] -> $($file.FullName)"
+            if ($entropy -lt 7.20 -or $entropy -gt 7.95) { continue }$alerts += "WARNING: High-entropy packed binary [Entropy: $entropy] -> $($file.FullName)"
         }
     }
-
-    $extraCfgDirs = New-Object 'System.Collections.Generic.List[string]'
-    try {
-        foreach ($item in @(Get-VadSuspectDllList)) {
-            if ($item.Dir -and (Test-Path -LiteralPath$item.Dir)) {
-                if (-not $extraCfgDirs.Contains($item.Dir)) {
-                    $extraCfgDirs.Add($item.Dir)
-                }
-            }
-        }
-    } catch {}
-
     return $alerts
 }
 
-# --- AUTOMATIC EXECUTION ENTRYPOINT ---
+# --- Automatic Execution ---
 try {
     Write-Host "Running Astrilis Union Scan..." -ForegroundColor Cyan
-    $cfgHits = [AstrilisUnion.FastEntropy]::ScanCheatConfigs($null, 0)
-    $entropyHits = Get-SuspiciousHighEntropyFileAlerts
+    $cfgHits = [AstrilisUnion.FastEntropy]::ScanCheatConfigs($null, 0)$entropyHits = Get-SuspiciousHighEntropyFileAlerts
 
     $summaryText = "Astrilis Union v1.3.0 Scan Summary:`nConfig Matches: $($cfgHits.Count)`nPacked Binaries: $($entropyHits.Count)"
     Write-Host $summaryText -ForegroundColor Green
 
     if ($script:DiscordWebhookUrl) {
-        $payload = @{ content = $summaryText } | ConvertTo-Json
-        Invoke-RestMethod -Uri $script:DiscordWebhookUrl -Method Post -Body $payload -ContentType 'application/json' -ErrorAction SilentlyContinue
+        $payload = @{ content =$summaryText } | ConvertTo-Json
+        Invoke-RestMethod -Uri $script:DiscordWebhookUrl -Method Post -Body$payload -ContentType 'application/json' -ErrorAction SilentlyContinue
     }
 } catch {
-    Write-Host "Scan completed with warnings." -ForegroundColor Yellow
+    Write-Host "Scan execution finished with warnings." -ForegroundColor Yellow
 }

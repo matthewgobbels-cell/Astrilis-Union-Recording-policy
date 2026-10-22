@@ -47,9 +47,9 @@ Write-Host "| |_) |  _|| |  | | | | |_) | | | | ||  \| | |  _  | |_) | | | | |  
 Write-Host "|  _ <| |__| |__| |_| |  _ <| |_| | || |\  | |_| | |  __/| |_| | |___ | | |___  | |   " -ForegroundColor Cyan
 Write-Host "|_| \_\_____\____\___/|_| \_\____/___|_| \_|\____| |_|    \___/|_____|___\____| |_|   " -ForegroundColor Cyan
 Write-ColoredLine ""
-Write-ColoredLine "=== Astrilis Union Recording Policy ===" Yellow
+Write-ColoredLine "=== Astrilis Recording Rule Hub ===" Yellow
 Write-ColoredLine "Complete both steps with 100% success to pass." White
-Write-ColoredLine "Applications will download and extract to C:\ToolsETA." White
+Write-ColoredLine "Applications will download and extract to C:\ToolsAstrilis." White
 Write-ColoredLine "If a prompt shows up, press OK to run the application." White
 Write-ColoredLine "Follow the instructions listed on each step." White
 Write-ColoredLine "This PowerShell process currently features live Task Manager monitoring." White
@@ -106,7 +106,7 @@ Write-ColoredLine "=== Discord Servers ===" Yellow
 Write-ColoredLine "discord.gg/astrilis" White
 Write-ColoredLine ""
 Write-ColoredLine "=== Credits ===" Yellow
-Write-ColoredLine "Made by @matthewgobbels" White
+Write-ColoredLine "Made by skrimworthy" White
 Write-Host ""
 Wait-ForEnter -Message "Press Enter to Continue"
 Clear-Host
@@ -412,7 +412,7 @@ if ($runningPE) {
     Write-ColoredLine "[SUCCESS] No running Process Explorer processes were found." Green
 }
 
-$baseFolder = "C:\ToolsETA"
+$baseFolder = "C:\ToolsAstrilis"
 $extractFolder = Join-Path $baseFolder "ProcessExplorer"
 $zipUrl = "https://download.sysinternals.com/files/ProcessExplorer.zip"
 $zipPath = Join-Path $baseFolder "ProcessExplorer.zip"
@@ -423,13 +423,13 @@ $regFilePath = Join-Path $baseFolder "procexp_config.reg"
 try {
     if (Test-Path $baseFolder) {
         Remove-Item -Path $baseFolder -Recurse -Force -ErrorAction Stop
-        Write-ColoredLine "[SUCCESS] Cleaned up existing C:\ToolsETA folder." Green
+        Write-ColoredLine "[SUCCESS] Cleaned up existing C:\ToolsAstrilis folder." Green
     }
 
     New-Item -ItemType Directory -Path $baseFolder -Force -ErrorAction Stop | Out-Null
-    Write-ColoredLine "[SUCCESS] Prepared C:\ToolsETA." Green
+    Write-ColoredLine "[SUCCESS] Prepared C:\ToolsAstrilis." Green
 } catch {
-    Write-ColoredLine "[FAILED] Could not prepare C:\ToolsETA: $($_.Exception.Message)" Red
+    Write-ColoredLine "[FAILED] Could not prepare C:\ToolsAstrilis: $($_.Exception.Message)" Red
     Wait-ForEnter
     exit 1
 }
@@ -576,58 +576,32 @@ Write-ColoredLine "=========================================================" Ma
 Write-ColoredLine "        ASTRILIS UNION LIVE COMPLIANCE MONITOR           " Magenta
 Write-ColoredLine "=========================================================" Magenta
 Write-ColoredLine " System Integrity Verified. Guard rails active." Green
-Write-ColoredLine " Task Manager and new app activities are being tracked live." Cyan
+Write-ColoredLine " Task Manager is being monitored live." Cyan
 Write-ColoredLine " Press [Ctrl+C] at any time to exit live monitoring mode." Yellow
 Write-ColoredLine "=========================================================" Magenta
 Write-Host ""
 
-# Snapshot current processes so we only catch things opened *after* reaching this page
-$knownProcesses = @{}
-Get-Process -ErrorAction SilentlyContinue | ForEach-Object { $knownProcesses[$_.Id] = $_.ProcessName }
 $taskManagerActive = $false
 
 while ($true) {
     $currentProcesses = Get-Process -ErrorAction SilentlyContinue
 
-    # Track Task Manager state precisely
-    $taskMgrProc = $currentProcesses | Where-Object { $_.ProcessName -ieq 'taskmgr' }
+    # Track Task Manager state precisely (covers 'taskmgr' process and typical window titles)
+    $taskMgrProc = $currentProcesses | Where-Object { $_.ProcessName -ieq 'taskmgr' -or $_.MainWindowTitle -match 'Task Manager' }
+    
     if ($taskMgrProc -and -not $taskManagerActive) {
         $taskManagerActive = $true
         $timestamp = Get-Date -Format "HH:mm:ss"
-        Write-Host "[$timestamp] [ALERT] Task Manager was opened! (PID $($taskMgrProc.Id))" -ForegroundColor Red
+        Write-Host "[$timestamp] [ALERT] Task Manager was opened!" -ForegroundColor Red
         
         # Pop up alert notification window
-        [System.Windows.MessageBox]::Show("Task Manager was opened! Violation detected.", "Astrilis Union Policy Alert", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Error) | Out-Null
+        Add-Type -AssemblyName System.Windows.Forms
+        [System.Windows.Forms.MessageBox]::Show("Task Manager was opened! Violation detected.", "Astrilis Union Policy Alert", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
     } elseif (-not $taskMgrProc -and $taskManagerActive) {
         $taskManagerActive = $false
         $timestamp = Get-Date -Format "HH:mm:ss"
         Write-Host "[$timestamp] [INFO] Task Manager was closed." -ForegroundColor Yellow
     }
 
-    # Detect any new processes or applications launching
-    foreach ($proc in $currentProcesses) {
-        if (-not $knownProcesses.ContainsKey($proc.Id)) {
-            $knownProcesses[$proc.Id] = $proc.ProcessName
-            $timestamp = Get-Date -Format "HH:mm:ss"
-            
-            if ($proc.ProcessName -ieq 'taskmgr') {
-                # Handled above
-                continue
-            }
-
-            if ($proc.MainWindowTitle -or $proc.ProcessName -in @('procexp', 'windhawk', 'regedit', 'cmd', 'powershell')) {
-                $titleInfo = if ($proc.MainWindowTitle) { " ('$($proc.MainWindowTitle)')" } else { "" }
-                Write-Host "[$timestamp] [NOTICE] New application launched -> $($proc.ProcessName) (PID $($proc.Id))$titleInfo" -ForegroundColor Cyan
-            }
-        }
-    }
-
-    # Clean up exited processes
-    $currentIds = $currentProcesses.Id
-    $deadIds = @($knownProcesses.Keys) | Where-Object { $_ -notin $currentIds }
-    foreach ($id in $deadIds) {
-        $knownProcesses.Remove($id)
-    }
-
-    Start-Sleep -Seconds 1
+    Start-Sleep -Milliseconds 800
 }

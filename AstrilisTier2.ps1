@@ -576,7 +576,7 @@ Write-ColoredLine "=========================================================" Ma
 Write-ColoredLine "        ASTRILIS UNION LIVE COMPLIANCE MONITOR           " Magenta
 Write-ColoredLine "=========================================================" Magenta
 Write-ColoredLine " System Integrity Verified. Guard rails active." Green
-Write-ColoredLine " Task Manager is being monitored live." Cyan
+Write-ColoredLine " Live Task Manager & Process Monitoring is active." Cyan
 Write-ColoredLine " Press [Ctrl+C] at any time to exit live monitoring mode." Yellow
 Write-ColoredLine "=========================================================" Magenta
 Write-Host ""
@@ -584,24 +584,27 @@ Write-Host ""
 $taskManagerActive = $false
 
 while ($true) {
-    $currentProcesses = Get-Process -ErrorAction SilentlyContinue
+    # Query Win32_Process for full visibility across all system user accounts & elevation levels
+    try {
+        $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue
+        $tm = $procs | Where-Object { $_.Name -ieq 'taskmgr.exe' -or $_.CommandLine -like '*taskmgr*' }
 
-    # Track Task Manager state precisely (covers 'taskmgr' process and typical window titles)
-    $taskMgrProc = $currentProcesses | Where-Object { $_.ProcessName -ieq 'taskmgr' -or $_.MainWindowTitle -match 'Task Manager' }
-    
-    if ($taskMgrProc -and -not $taskManagerActive) {
-        $taskManagerActive = $true
-        $timestamp = Get-Date -Format "HH:mm:ss"
-        Write-Host "[$timestamp] [ALERT] Task Manager was opened!" -ForegroundColor Red
-        
-        # Pop up alert notification window
-        Add-Type -AssemblyName System.Windows.Forms
-        [System.Windows.Forms.MessageBox]::Show("Task Manager was opened! Violation detected.", "Astrilis Union Policy Alert", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
-    } elseif (-not $taskMgrProc -and $taskManagerActive) {
-        $taskManagerActive = $false
-        $timestamp = Get-Date -Format "HH:mm:ss"
-        Write-Host "[$timestamp] [INFO] Task Manager was closed." -ForegroundColor Yellow
-    }
+        if ($tm -and -not $taskManagerActive) {
+            $taskManagerActive = $true
+            $timestamp = Get-Date -Format "HH:mm:ss"
+            Write-Host "[$timestamp] [ALERT] Task Manager was opened! Violation detected." -ForegroundColor Red
+            
+            # Non-blocking async popup alert
+            $null = [System.Threading.ThreadPool]::QueueUserWorkItem({
+                Add-Type -AssemblyName System.Windows.Forms
+                [System.Windows.Forms.MessageBox]::Show("Task Manager was opened! Violation detected.", "Astrilis Union Policy Alert", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
+            })
+        } elseif (-not $tm -and $taskManagerActive) {
+            $taskManagerActive = $false
+            $timestamp = Get-Date -Format "HH:mm:ss"
+            Write-Host "[$timestamp] [INFO] Task Manager was closed." -ForegroundColor Yellow
+        }
+    } catch {}
 
-    Start-Sleep -Milliseconds 800
+    Start-Sleep -Milliseconds 500
 }

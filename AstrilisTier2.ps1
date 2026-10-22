@@ -7,9 +7,9 @@ if ([System.Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
         Start-Process -FilePath $hostExe -ArgumentList $argList -Wait | Out-Null
         exit
     }
-    $tempScript = Join-Path $env:TEMP 'Loc_Tier_2.ps1'
+    $tempScript = Join-Path $env:TEMP 'Astrilis Union Recording Policy.ps1'
     try {
-        Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/LOCJDUPDATER/LOCT2UPDATER/main/Loc_Tier_2.ps1' -OutFile $tempScript -UseBasicParsing
+        Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/Astrilis Union JDUPDATER/Astrilis Union T2UPDATER/main/Astrilis Union Recording Policy.ps1' -OutFile $tempScript -UseBasicParsing
         Start-Process -FilePath $hostExe -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-STA', '-File', "`"$tempScript`"") -Wait | Out-Null
     } catch {
         Write-Warning "WinForms steps need STA mode. Use: powershell -STA -ExecutionPolicy Bypass -File `"<script.ps1>`""
@@ -33,14 +33,14 @@ function Test-Admin {
     return $p.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
 }
 
-$script:LocTier2Version = '2.6.5'
+$script:Astrilis Union Tier2Version = '2.6.5'
 
-function Open-LocalMachineRegistryKey {
+function Open-Astrilis Union alMachineRegistryKey {
     param([string]$SubKeyPath)
 
     try {
         $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
-            [Microsoft.Win32.RegistryHive]::LocalMachine,
+            [Microsoft.Win32.RegistryHive]::Astrilis Union alMachine,
             [Microsoft.Win32.RegistryView]::Registry64
         )
         if ([string]::IsNullOrWhiteSpace($SubKeyPath)) { return $base }
@@ -80,20 +80,19 @@ function Add-RegistryKeyFingerprint {
 }
 
 # ===============================
-# ASCII Banner (LOC RECORDING POLICY T2)
-# ===============================
-Write-Host ' _     ___   ____   ____  _____ ____ ___  ____  ____ ___ _   _  ____ ' -ForegroundColor Cyan
-Write-Host '| |   / _ \ / ___| |  _ \| ____/ ___/ _ \|  _ \|  _ \_ _| \ | |/ ___|' -ForegroundColor Cyan
-Write-Host '| |  | | | | |     | |_) |  _|| |  | | | | |_) | | | | ||  \| | |  _ ' -ForegroundColor Cyan
-Write-Host '| |__| |_| | |___  |  _ <| |__| |__| |_| |  _ <| |_| | || |\| | |_| |' -ForegroundColor Cyan
-Write-Host '|_____\___/ \____| |_| \_\_____\____\___/|_| \_\____/___|_| \_|\____|' -ForegroundColor Cyan
+# ASCII Banner (Astrilis Union  RECORDING POLICY T2)
+Write-Host '    _         _        _ _       _          _   _       _            ' -ForegroundColor Cyan
+Write-Host '   / \   ___ | |_ _ __(_) |___  | |        | | | |_ __ (_) ___  _ __ ' -ForegroundColor Cyan
+Write-Host '  / _ \ / __|| __| `__| | / __| | |_____   | | | | `__| |/ _ \| `_ \ ' -ForegroundColor Cyan
+Write-Host ' / ___ \\__ \| |_| |  | | \__ \ | |_____|  | |_| | |  | | (_) | | | |' -ForegroundColor Cyan
+Write-Host '/_/   \_\___/ \__|_|  |_|_|___/ |_|         \___/|_|  |_|\___/|_| |_|' -ForegroundColor Cyan
 Write-Host ' ____   ___  _     ___ ______   __  _____ ____  ' -ForegroundColor Cyan
 Write-Host '|  _ \ / _ \| |   |_ _/ ___\ \ / / |_   _|___ \ ' -ForegroundColor Cyan
 Write-Host '| |_) | | | | |    | | |    \ V /    | |   __) |' -ForegroundColor Cyan
 Write-Host '|  __/| |_| | |___ | | |___  | |     | |  / __/ ' -ForegroundColor Cyan
 Write-Host '|_|    \___/|_____|___\____| |_|     |_| |_____|' -ForegroundColor Cyan
 Write-Host ""
-Write-Host "LOC Tier 2 v$($script:LocTier2Version)" -ForegroundColor White
+Write-Host "Astrilis Union  Tier 2 v$($script:Astrilis Union Tier2Version)" -ForegroundColor White
 Write-Host ""
 if (-not (Test-Admin)) {
     Write-Host "WARNING: Run as Administrator for full results." -ForegroundColor Yellow
@@ -235,7 +234,7 @@ function Resolve-ToolExecutable {
     return $null
 }
 
-function Start-LocExternalTool {
+function Start-Astrilis Union ExternalTool {
     param(
         [string]$Name,
         [string]$Url,
@@ -266,11 +265,11 @@ function Start-LocExternalTool {
     }
 
     if (-not $exe) {
-        Write-Host "FAILED: $Name unavailable (download blocked, AV, or extract failed)." -ForegroundColor Red
+        Write-Host "FAILED: $Name unavailable (download bAstrilis Union ked, AV, or extract failed)." -ForegroundColor Red
         return $false
     }
 
-    try { Unblock-File -LiteralPath $exe -ErrorAction SilentlyContinue } catch {}
+    try { UnbAstrilis Union k-File -LiteralPath $exe -ErrorAction SilentlyContinue } catch {}
 
     try {
         $startParams = @{
@@ -293,7 +292,7 @@ function Start-LocExternalTool {
     }
 }
 
-function Complete-LocToolStep {
+function Complete-Astrilis Union ToolStep {
     param(
         [string]$Name,
         [bool]$Succeeded
@@ -343,7 +342,7 @@ function Get-ActivityModeratorEntries {
     )
 
     foreach ($root in $roots) {
-        $rootKey = Open-LocalMachineRegistryKey -SubKeyPath $root
+        $rootKey = Open-Astrilis Union alMachineRegistryKey -SubKeyPath $root
         if (-not $rootKey) { continue }
 
         foreach ($sidName in $rootKey.GetSubKeyNames()) {
@@ -360,7 +359,7 @@ function Get-ActivityModeratorEntries {
                     $fileTime = [BitConverter]::ToInt64($raw, 0)
                     if ($fileTime -le 0) { continue }
 
-                    $execTime = [DateTime]::FromFileTimeUtc($fileTime).ToLocalTime()
+                    $execTime = [DateTime]::FromFileTimeUtc($fileTime).ToAstrilis Union alTime()
                     $exe = Split-Path $valueName -Leaf
                     $path = ""
 
@@ -414,7 +413,7 @@ function Get-CheatFolderHits {
     $scanPaths = @(
         (Join-Path $env:USERPROFILE "Downloads"),
         (Join-Path $env:USERPROFILE "Desktop"),
-        $env:LOCALAPPDATA,
+        $env:Astrilis Union ALAPPDATA,
         $env:APPDATA,
         $env:ProgramData,
         $env:TEMP,
@@ -456,7 +455,7 @@ function Get-Exclusions {
     foreach ($root in $regRoots) {
         foreach ($type in $regTypes) {
             try {
-                $key = Open-LocalMachineRegistryKey -SubKeyPath "$root\$type"
+                $key = Open-Astrilis Union alMachineRegistryKey -SubKeyPath "$root\$type"
                 if (-not $key) { continue }
                 foreach ($name in $key.GetValueNames()) {
                     if ($name) { [void]$list.Add($name) }
@@ -489,7 +488,7 @@ function Get-RegistrySubtreeFingerprint {
     $parts = New-Object 'System.Collections.Generic.List[string]'
 
     try {
-        $root = Open-LocalMachineRegistryKey -SubKeyPath $RelativePath
+        $root = Open-Astrilis Union alMachineRegistryKey -SubKeyPath $RelativePath
         if (-not $root) { return 'MISSING' }
         Add-RegistryKeyFingerprint -Key $root -Prefix $RelativePath -Parts $parts
         $root.Close()
@@ -528,7 +527,7 @@ function Get-AllowedDefenderThreats {
         'SOFTWARE\Policies\Microsoft\Windows Defender\Exclusions\Threats'
     )) {
         try {
-            $key = Open-LocalMachineRegistryKey -SubKeyPath $relPath
+            $key = Open-Astrilis Union alMachineRegistryKey -SubKeyPath $relPath
             if (-not $key) { continue }
             foreach ($name in $key.GetValueNames()) {
                 if ($name) { [void]$list.Add("$relPath -> $name") }
@@ -542,7 +541,7 @@ function Get-AllowedDefenderThreats {
 
     foreach ($root in $script:DefenderThreatsRegRoots) {
         try {
-            $key = Open-LocalMachineRegistryKey -SubKeyPath $root
+            $key = Open-Astrilis Union alMachineRegistryKey -SubKeyPath $root
             if (-not $key) { continue }
             foreach ($subName in $key.GetSubKeyNames()) {
                 if ($script:DefenderThreatsSystemSubkeys -contains $subName) { continue }
@@ -613,7 +612,7 @@ $script:WindhawkWatchPaths = @(
     (Join-Path $env:USERPROFILE 'Downloads\windhawk.exe'),
     (Join-Path ${env:ProgramFiles} 'Windhawk\windhawk.exe'),
     (Join-Path ${env:ProgramFiles(x86)} 'Windhawk\windhawk.exe'),
-    (Join-Path $env:LOCALAPPDATA 'Programs\Windhawk\windhawk.exe')
+    (Join-Path $env:Astrilis Union ALAPPDATA 'Programs\Windhawk\windhawk.exe')
 )
 
 function Get-WindhawkProcessHits {
@@ -685,7 +684,7 @@ function Get-PrefetchLastRunTime {
             foreach ($fileTime in $candidates) {
                 if ($fileTime -le 0) { continue }
                 try {
-                    $dt = [DateTime]::FromFileTimeUtc($fileTime).ToLocalTime()
+                    $dt = [DateTime]::FromFileTimeUtc($fileTime).ToAstrilis Union alTime()
                     if ($dt.Year -ge 2000 -and $dt.Year -le 2100) {
                         return $dt.ToString("yyyy-MM-dd HH:mm:ss")
                     }
@@ -709,7 +708,7 @@ function Get-BamRegistryFingerprints {
 
     foreach ($root in $roots) {
         try {
-            $rootKey = Open-LocalMachineRegistryKey -SubKeyPath $root
+            $rootKey = Open-Astrilis Union alMachineRegistryKey -SubKeyPath $root
             if (-not $rootKey) { continue }
 
             foreach ($sidName in $rootKey.GetSubKeyNames()) {
@@ -785,7 +784,7 @@ function Write-MonitorAlert {
     try {
         Add-Content -LiteralPath $LogFile -Value "[$timestamp] $Message" -ErrorAction Stop
     } catch {
-        $fallback = Join-Path $env:TEMP 'loc_tier2_security_events.log'
+        $fallback = Join-Path $env:TEMP 'Astrilis Union _tier2_security_events.log'
         try { Add-Content -LiteralPath $fallback -Value "[$timestamp] $Message" -ErrorAction SilentlyContinue } catch {}
     }
 }
@@ -926,7 +925,7 @@ function Get-NvidiaShadowPlayFtsState {
     }
 
     try {
-        $key = Open-LocalMachineRegistryKey -SubKeyPath $script:NvidiaShadowPlayFtsRegPath
+        $key = Open-Astrilis Union alMachineRegistryKey -SubKeyPath $script:NvidiaShadowPlayFtsRegPath
         if (-not $key) { return $state }
 
         $state.Exists = $true
@@ -1431,7 +1430,7 @@ else { $vmOutput += "FAILURE: VM detected" }
 $totalChecks++
 $registryHit = $false
 try {
-    $mui = "HKCU:\SOFTWARE\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"
+    $mui = "HKCU:\SOFTWARE\Classes\Astrilis Union al Settings\Software\Microsoft\Windows\Shell\MuiCache"
     $entries = Get-ItemProperty -Path $mui -ErrorAction Stop
     foreach ($prop in $entries.PSObject.Properties) {
         if ($prop.Name -match '^(PSPath|PSParentPath|PSChildName|PSDrive|PSProvider)$') { continue }
@@ -1644,7 +1643,7 @@ try {
 Wait-NextStep "[4/8] Press Enter" "[4/8] Process Explorer"
 Show-LoadingBar
 
-$toolOk = Start-LocExternalTool -Name 'Process Explorer' `
+$toolOk = Start-Astrilis Union ExternalTool -Name 'Process Explorer' `
     -Url 'https://download.sysinternals.com/files/ProcessExplorer.zip' `
     -ZipPath "$env:TEMP\procexp.zip" `
     -DestDir "$env:TEMP\ProcessExplorer" `
@@ -1652,58 +1651,58 @@ $toolOk = Start-LocExternalTool -Name 'Process Explorer' `
     -FallbackExeNames @('procexp.exe') `
     -StartArguments @('/accepteula') `
     -Wait
-Complete-LocToolStep -Name 'Process Explorer' -Succeeded $toolOk
+Complete-Astrilis Union ToolStep -Name 'Process Explorer' -Succeeded $toolOk
 
 Wait-NextStep "[5/8] Press Enter" "[5/8] Last Activity Viewer"
 Show-LoadingBar
 
-$toolOk = Start-LocExternalTool -Name 'Last Activity Viewer' `
+$toolOk = Start-Astrilis Union ExternalTool -Name 'Last Activity Viewer' `
     -Url 'https://www.nirsoft.net/utils/lastactivityview.zip' `
     -ZipPath "$env:TEMP\LastActivityView.zip" `
     -DestDir "$env:TEMP\LastActivity" `
     -ExeName 'LastActivityView.exe' `
     -WindowStyle Maximized
-Complete-LocToolStep -Name 'Last Activity Viewer' -Succeeded $toolOk
+Complete-Astrilis Union ToolStep -Name 'Last Activity Viewer' -Succeeded $toolOk
 
 Wait-NextStep "[6/8] Press Enter" "[6/8] WinObj Check"
 Show-LoadingBar
 Show-WinObjCheckGuide
 
-$toolOk = Start-LocExternalTool -Name 'WinObj' `
+$toolOk = Start-Astrilis Union ExternalTool -Name 'WinObj' `
     -Url 'https://download.sysinternals.com/files/WinObj.zip' `
     -ZipPath "$env:TEMP\WinObj.zip" `
     -DestDir "$env:TEMP\WinObj" `
     -ExeName 'WinObj.exe' `
     -Wait
-Complete-LocToolStep -Name 'WinObj' -Succeeded $toolOk
+Complete-Astrilis Union ToolStep -Name 'WinObj' -Succeeded $toolOk
 
 Wait-NextStep "[7/8] Press Enter" "[7/8] Autoruns"
 Show-LoadingBar
 Show-AutorunsCheckGuide
 
-$toolOk = Start-LocExternalTool -Name 'Autoruns' `
+$toolOk = Start-Astrilis Union ExternalTool -Name 'Autoruns' `
     -Url 'https://download.sysinternals.com/files/Autoruns.zip' `
     -ZipPath "$env:TEMP\Autoruns.zip" `
     -DestDir "$env:TEMP\Autoruns" `
     -ExeName 'Autoruns64.exe' `
     -FallbackExeNames @('Autoruns.exe') `
     -Wait
-Complete-LocToolStep -Name 'Autoruns' -Succeeded $toolOk
+Complete-Astrilis Union ToolStep -Name 'Autoruns' -Succeeded $toolOk
 
 Wait-NextStep "[8/8] Press Enter" "[8/8] Live Monitor"
 Show-LoadingBar
 Write-Host "Keep this window open during the match. Must show again after match." -ForegroundColor Yellow
 Write-Host ""
 
-$logFile = Join-Path $env:ProgramData 'loc_tier2_security_events.log'
+$logFile = Join-Path $env:ProgramData 'Astrilis Union _tier2_security_events.log'
 try {
     if (-not (Test-Path $logFile)) { New-Item -Path $logFile -ItemType File -Force | Out-Null }
-    Write-MonitorAlert -Message "LOC Tier 2 v$($script:LocTier2Version) monitor started" -LogFile $logFile
+    Write-MonitorAlert -Message "Astrilis Union  Tier 2 v$($script:Astrilis Union Tier2Version) monitor started" -LogFile $logFile
 } catch {
-    $logFile = Join-Path $env:TEMP 'loc_tier2_security_events.log'
+    $logFile = Join-Path $env:TEMP 'Astrilis Union _tier2_security_events.log'
     if (-not (Test-Path $logFile)) { New-Item -Path $logFile -ItemType File -Force | Out-Null }
     Write-Host "WARNING: Logging to $logFile" -ForegroundColor Yellow
-    Write-MonitorAlert -Message "LOC Tier 2 v$($script:LocTier2Version) monitor started" -LogFile $logFile
+    Write-MonitorAlert -Message "Astrilis Union  Tier 2 v$($script:Astrilis Union Tier2Version) monitor started" -LogFile $logFile
 }
 
 Register-WmiEvent -Class Win32_VolumeChangeEvent -SourceIdentifier USBChange | Out-Null

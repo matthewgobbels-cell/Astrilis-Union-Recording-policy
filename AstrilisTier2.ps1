@@ -44,7 +44,7 @@ Write-Host "|_____| |_/_/   \_\ |_| \_\___|\___| |_| \_\\__,_|_|\___||___/" -For
 Write-ColoredLine ""
 Write-ColoredLine "=== Recording Rule Hub ===" Yellow
 Write-ColoredLine "Complete both steps with 100% success to pass." White
-Write-ColoredLine "Applications will download and extract to C:\ToolsETA." White
+Write-ColoredLine "Applications will download and extract to C:\ToolsAstrilis." White
 Write-ColoredLine "If a prompt shows up, press OK to run the application." White
 Write-ColoredLine "Follow the instructions listed on each step." White
 Write-ColoredLine "This T1 PowerShell process currently has 2 steps." White
@@ -100,8 +100,8 @@ $gpuName = $activeGPUName
 Write-ColoredLine ""
 Write-ColoredLine "=== Discord Servers ===" Yellow
 Write-ColoredLine "discord.gg/Astrilis" White
-Write-ColoredLine "discord.gg/ᵂᵘᵐᵖᵘˢ" White
-Write-ColoredLine "discord.gg/ᵂᵘᵐᵖᵘˢ" White
+Write-ColoredLine "discord.gg/tXv9sTuNU" White
+Write-ColoredLine "discord.gg/8RzPT8fZE" White
 Write-ColoredLine ""
 Write-ColoredLine "=== Credits ===" Yellow
 Write-ColoredLine "Made by @skrimworthy" White
@@ -413,7 +413,7 @@ if ($runningPE) {
 }
 
 # Paths
-$baseFolder = "C:\ToolsETA"
+$baseFolder = "C:\ToolsAstrilis"
 $extractFolder = Join-Path $baseFolder "ProcessExplorer"
 $zipUrl = "https://download.sysinternals.com/files/ProcessExplorer.zip"
 $zipPath = Join-Path $baseFolder "ProcessExplorer.zip"
@@ -425,13 +425,13 @@ $regFilePath = Join-Path $baseFolder "procexp_config.reg"
 try {
     if (Test-Path $baseFolder) {
         Remove-Item -Path $baseFolder -Recurse -Force -ErrorAction Stop
-        Write-ColoredLine "[SUCCESS] Cleaned up existing C:\ToolsETA folder." Green
+        Write-ColoredLine "[SUCCESS] Cleaned up existing C:\ToolsAstrilis folder." Green
     }
 
     New-Item -ItemType Directory -Path $baseFolder -Force -ErrorAction Stop | Out-Null
-    Write-ColoredLine "[SUCCESS] Prepared C:\ToolsETA." Green
+    Write-ColoredLine "[SUCCESS] Prepared C:\ToolsAstrilis." Green
 } catch {
-    Write-ColoredLine "[FAILED] Could not prepare C:\ToolsETA: $($_.Exception.Message)" Red
+    Write-ColoredLine "[FAILED] Could not prepare C:\ToolsAstrilis: $($_.Exception.Message)" Red
     Wait-ForEnter
     exit 1
 }

@@ -6,7 +6,7 @@
     monitors registry integrity, processes, system compliance, and provides live monitoring.
 .VERSION
     2.7.0
-#[cite: 3]
+#>
 
 Clear-Host
 
@@ -93,18 +93,18 @@ function Add-RegistryKeyFingerprint {
 }
 
 # ===============================
-# ASCII Banner (ASTRILIS UNION RECORDING POLICY T2)
+# ASCII Banner (ASTRILIS UNION RECORDING POLICY)
 # ===============================
 Write-Host '    _         _        _ _       _          _   _       _            ' -ForegroundColor Cyan
 Write-Host '   / \   ___ | |_ _ __(_) |___  | |        | | | |_ __ (_) ___  _ __ ' -ForegroundColor Cyan
 Write-Host '  / _ \ / __|| __| `__| | / __| | |_____   | | | | `__| |/ _ \| `_ \ ' -ForegroundColor Cyan
 Write-Host ' / ___ \\__ \| |_| |  | | \__ \ | |_____|  | |_| | |  | | (_) | | | |' -ForegroundColor Cyan
 Write-Host '/_/   \_\___/ \__|_|  |_|_|___/ |_|         \___/|_|  |_|\___/|_| |_|' -ForegroundColor Cyan
-Write-Host ' ____   ___  _     ___ ______   __  _____ ____  ' -ForegroundColor Cyan
-Write-Host '|  _ \ / _ \| |   |_ _/ ___\ \ / / |_   _|___ \ ' -ForegroundColor Cyan
-Write-Host '| |_) | | | | |    | | |    \ V /    | |   __) |' -ForegroundColor Cyan
-Write-Host '|  __/| |_| | |___ | | |___  | |     | |  / __/ ' -ForegroundColor Cyan
-Write-Host '|_|    \___/|_____|___\____| |_|     |_| |_____|' -ForegroundColor Cyan
+Write-Host ' ____  _____ ____ ___  ____  ____ ___ _   _  ____   ____   ___  _     ___ ______   __ ' -ForegroundColor Cyan
+Write-Host '|  _ \| ____/ ___/ _ \|  _ \|  _ \_ _| \ | |/ ___| |  _ \ / _ \| |   |_ _/ ___\ \ / / ' -ForegroundColor Cyan
+Write-Host '| |_) |  _|| |  | | | | |_) | | | | ||  \| | |  _  | |_) | | | | |    | | |    \ V /  ' -ForegroundColor Cyan
+Write-Host '|  _ <| |__| |__| |_| |  _ <| |_| | || |\  | |_| | |  __/| |_| | |___ | | |___  | |   ' -ForegroundColor Cyan
+Write-Host '|_| \_\_____\____\___/|_| \_\____/___|_| \_|\____| |_|    \___/|_____|___\____| |_|   ' -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Astrilis Union Tier 2 v$($script:AstrilisTier2Version) - Live Compliance Monitor" -ForegroundColor White
 Write-Host ""
@@ -224,4 +224,3 @@ while ($true) {
     # Polling interval for live monitoring (e.g., every 5 seconds)
     Start-Sleep -Seconds 5
 }
-ᵍᵘᵐᵖᵘˢ

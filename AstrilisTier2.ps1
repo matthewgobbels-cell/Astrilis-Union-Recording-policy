@@ -81,16 +81,6 @@ function Add-RegistryKeyFingerprint {
 
 # ===============================
 # ASCII Banner (Astrilis Union  RECORDING POLICY T2)
-Write-Host '    _         _        _ _       _          _   _       _            ' -ForegroundColor Cyan
-Write-Host '   / \   ___ | |_ _ __(_) |___  | |        | | | |_ __ (_) ___  _ __ ' -ForegroundColor Cyan
-Write-Host '  / _ \ / __|| __| `__| | / __| | |_____   | | | | `__| |/ _ \| `_ \ ' -ForegroundColor Cyan
-Write-Host ' / ___ \\__ \| |_| |  | | \__ \ | |_____|  | |_| | |  | | (_) | | | |' -ForegroundColor Cyan
-Write-Host '/_/   \_\___/ \__|_|  |_|_|___/ |_|         \___/|_|  |_|\___/|_| |_|' -ForegroundColor Cyan
-Write-Host ' ____   ___  _     ___ ______   __  _____ ____  ' -ForegroundColor Cyan
-Write-Host '|  _ \ / _ \| |   |_ _/ ___\ \ / / |_   _|___ \ ' -ForegroundColor Cyan
-Write-Host '| |_) | | | | |    | | |    \ V /    | |   __) |' -ForegroundColor Cyan
-Write-Host '|  __/| |_| | |___ | | |___  | |     | |  / __/ ' -ForegroundColor Cyan
-Write-Host '|_|    \___/|_____|___\____| |_|     |_| |_____|' -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Astrilis Union  Tier 2 v$($script:Astrilis Union Tier2Version)" -ForegroundColor White
 Write-Host ""

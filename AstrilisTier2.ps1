@@ -5,7 +5,7 @@
     Ensures administrative privileges, checks execution constraints (STA mode),
     monitors registry integrity, processes, system compliance, and provides live monitoring.
 .VERSION
-    2.7.0
+    2.8.0
 #>
 
 Clear-Host
@@ -46,7 +46,7 @@ function Test-Admin {
     return $p.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
 }
 
-$script:AstrilisTier2Version = '2.7.0'
+$script:AstrilisTier2Version = '2.8.0'
 
 function Open-LocalMachineRegistryKey {
     param([string]$SubKeyPath)
@@ -182,45 +182,70 @@ Write-Section "Binary Sig" $powershellSigOutput
 
 Write-MonitorAlert -Message "Astrilis Union Policy Compliance Initialization Passed (100% Match)." -Color Green
 
-# ===============================
-# LIVE MONITORING LOOP
-# ===============================
 Write-Host ""
+Write-Host "Press Enter to advance to Live Compliance Monitor Page..." -ForegroundColor Yellow
+Read-Host | Out-Null
+
+# ===============================
+# LIVE MONITORING PAGE
+# ===============================
+Clear-Host
 Write-Host "=========================================================" -ForegroundColor Magenta
 Write-Host "       ASTRILIS UNION LIVE COMPLIANCE MONITOR ACTIVE     " -ForegroundColor Magenta
 Write-Host "=========================================================" -ForegroundColor Magenta
+Write-Host " System Integrity Verified. Guard rails active." -ForegroundColor Green
 Write-Host " Press [Ctrl+C] at any time to exit live monitoring mode." -ForegroundColor Yellow
+Write-Host "=========================================================" -ForegroundColor Magenta
 Write-Host ""
 
-$monitorLog = Join-Path $env:TEMP 'astrilis_tier2_security_events.log'
+# Baseline process tracking map
+$knownProcesses = @{}
+Get-Process | ForEach-Object { $knownProcesses[$_.Id] = $_.ProcessName }
+
+$taskManagerActive = $false
 
 while ($true) {
-    $timestamp = Get-Date -Format "HH:mm:ss"
-    
-    # 1. Check Real-time Protection State
+    # 1. Real-time Protection State Monitoring
     try {
         $def = Get-MpComputerStatus -ErrorAction Stop
         if (-not $def.RealTimeProtectionEnabled) {
             Write-MonitorAlert -Message "LIVE ALERT: Real-time protection was disabled!" -Color Red
-            # Attempt auto-remediation
             Set-MpPreference -DisableRealtimeMonitoring $false -ErrorAction SilentlyContinue
         }
     } catch {}
 
-    # 2. Check for unauthorized process spikes or restricted tools (e.g., Process Explorer / Windhawk / Regedit injection trackers)
-    $suspiciousProcesses = @('procexp', 'windhawk', 'regedit')
-    foreach ($procName in $suspiciousProcesses) {
-        $found = Get-Process -Name $procName -ErrorAction SilentlyContinue
-        if ($found) {
-            foreach ($p in $found) {
-                Write-MonitorAlert -Message "LIVE WARNING: Monitored tool detected running -> $($p.Name) (PID $($p.Id))" -Color Yellow
+    # 2. Check Task Manager & Open Window App Launches
+    $currentProcesses = Get-Process -ErrorAction SilentlyContinue
+
+    # Track Task Manager state specifically
+    $taskMgrProc = $currentProcesses | Where-Object { $_.ProcessName -ieq 'taskmgr' }
+    if ($taskMgrProc -and -not $taskManagerActive) {
+        $taskManagerActive = $true
+        Write-MonitorAlert -Message "LIVE ALERT: Task Manager was opened! (PID $($taskMgrProc.Id))" -Color Red
+    } elseif (-not $taskMgrProc -and $taskManagerActive) {
+        $taskManagerActive = $false
+        Write-MonitorAlert -Message "LIVE INFO: Task Manager was closed." -Color Yellow
+    }
+
+    # Detect new applications opening
+    foreach ($proc in $currentProcesses) {
+        if (-not $knownProcesses.ContainsKey($proc.Id)) {
+            $knownProcesses[$proc.Id] = $proc.ProcessName
+            
+            # Highlight GUI/Application window launches
+            if ($proc.MainWindowTitle -or $proc.ProcessName -in @('procexp', 'windhawk', 'regedit')) {
+                $titleInfo = if ($proc.MainWindowTitle) { " ['"$($proc.MainWindowTitle)'"]" } else { "" }
+                Write-MonitorAlert -Message "LIVE NOTICE: New Application Launched -> $($proc.ProcessName) (PID $($proc.Id))$titleInfo" -Color Cyan
             }
         }
     }
 
-    # 3. Heartbeat status output to show live monitoring is active
-    Write-Host "[$timestamp] [LIVE MONITOR] System integrity verified. Guard rails active." -ForegroundColor DarkGray
+    # Clean up closed processes from baseline map
+    $currentIds = $currentProcesses.Id
+    $deadIds = @($knownProcesses.Keys) | Where-Object { $_ -notin $currentIds }
+    foreach ($id in $deadIds) {
+        $knownProcesses.Remove($id)
+    }
 
-    # Polling interval for live monitoring (e.g., every 5 seconds)
-    Start-Sleep -Seconds 5
+    Start-Sleep -Seconds 2
 }

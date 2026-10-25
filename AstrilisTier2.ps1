@@ -5,7 +5,6 @@
   Stage 3 : Session monitor       (live monitoring for the duration of the match)
   Run in an elevated 64-bit PowerShell window while screen recording.
   Read-only: nothing on the system is modified. A full report is saved to disk.
-  Made by skrimworthy
 #>
 
 $ErrorActionPreference = 'SilentlyContinue'
@@ -17,21 +16,21 @@ $script:Width = 78
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
     Write-Host ''
-    Write-Host ' Astrilis Union compliance verification requires Administrator privileges.' -ForegroundColor Red
+    Write-Host ' Astrilis Union requires Administrator privileges.' -ForegroundColor Red
     Write-Host ' Right-click PowerShell, choose "Run as administrator", and start it again.' -ForegroundColor Yellow
     Write-Host ''
     Pause
     exit 1
 }
 if ([IntPtr]::Size -ne 8) {
-    Write-Host "`n Astrilis Union compliance verification requires 64-bit PowerShell." -ForegroundColor Red
+    Write-Host "`n Astrilis Union requires 64-bit PowerShell." -ForegroundColor Red
     Pause
     exit 1
 }
 
 # ============================================================================ NATIVE HELPERS
-if (-not ('Astrilis.Native' -as [type])) {
-    Add-Type -Namespace Astrilis -Name Native -UsingNamespace System.Collections.Generic -MemberDefinition @'
+if (-not ('TCAR.Native' -as [type])) {
+    Add-Type -Namespace TCAR -Name Native -UsingNamespace System.Collections.Generic -MemberDefinition @'
 [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint a, bool i, int pid);
 [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
 [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
@@ -47,7 +46,7 @@ public struct MBI {
     public ushort PartitionId; public UIntPtr RegionSize; public uint State; public uint Protect; public uint Type;
 }
 
-# Counts committed, private, executable+writable memory regions in a process.
+// Counts committed, private, executable+writable memory regions in a process.
 public static long[] ScanRwx(int pid) {
     IntPtr h = OpenProcess(0x0410, false, pid);
     if (h == IntPtr.Zero) return null;
@@ -65,7 +64,9 @@ public static long[] ScanRwx(int pid) {
     return new long[] { count, total };
 }
 
-# Finds processes holding a memory-read handle to any of the target PIDs.
+// Finds processes holding a memory-read handle to any of the target PIDs.
+// Speed: only handles whose object type is "Process" are duplicated (the type index is learned
+// from a probe handle), instead of duplicating every readable handle on the system.
 public static int[] FindReaders(int[] targets) {
     List<int> res = new List<int>();
     if (targets == null || targets.Length == 0) return res.ToArray();
@@ -156,6 +157,8 @@ static string Hex(byte[] b, int off, int n) {
     return sb.ToString();
 }
 
+// Recognises the common inline-hook trampolines at the start of a function (directly, after
+// "mov r10,rcx", or after "mov r10,rcx; mov eax,imm32") and returns the redirect destination.
 static long HookDest(IntPtr h, long addr, byte[] b, out string kind) {
     kind = "";
     int[] offs = new int[] { 0, 3, 8 };
@@ -176,6 +179,9 @@ static long HookDest(IntPtr h, long addr, byte[] b, out string kind) {
     return 0;
 }
 
+// Compares the first 16 bytes of exported functions of a loaded system DLL in a target process
+// against the same bytes in the on-disk file. ntPrefix selects every Nt*/Zw* export; extra adds named exports.
+// Each result line:  name|kind|destinationHex|memoryBytes|diskBytes   (kind = redirect type or "modified")
 public static string[] ScanHooks(int pid, string diskPath, long targetBase, bool ntPrefix, string[] extra) {
     List<string> res = new List<string>();
     byte[] d;
@@ -231,6 +237,9 @@ public static string[] ScanHooks(int pid, string diskPath, long targetBase, bool
     return res.ToArray();
 }
 
+// Finds direct/indirect system-call stubs ("mov r10,rcx; mov eax,imm; ... syscall") inside executable
+// memory that is not an image (private or mapped regions). Legitimate code only issues syscalls from ntdll/win32u.
+// Each result line:  regionBaseHex|private-or-mapped|offsetHex
 public static string[] ScanSyscallStubs(int pid) {
     List<string> res = new List<string>();
     IntPtr h = OpenProcess(0x0410, false, pid);
@@ -271,6 +280,7 @@ public static string[] ScanSyscallStubs(int pid) {
     return res.ToArray();
 }
 
+// Shannon entropy of the first 4 MB of a file (packed/encrypted binaries score ~7.2-7.95).
 public static double Entropy(string path) {
     try {
         using (System.IO.FileStream fs = new System.IO.FileStream(path, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite)) {
@@ -298,6 +308,10 @@ $script:Indicators = @(
     'solara', 'wave', 'synapse', 'krnl', 'fluxus', 'celery', 'wearedevs', 'injector', 'executor'
 )
 
+# Official Windows executables. Any file with one of these names must live in a Windows system location
+# AND carry a valid Microsoft signature, otherwise it is treated as an impostor.
+# (Kept separate from $Indicators: those are substring keywords, and adding system names there would
+#  match legitimate files.)
 $script:OfficialWinExe = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
 foreach ($n in @(
     'ctfmon.exe', 'securityhealthservice.exe', 'securityhealthsystray.exe', 'securityhealthhost.exe', 'msmpeng.exe', 'nissrv.exe', 'mpcmdrun.exe',
@@ -314,7 +328,10 @@ foreach ($n in @(
     'wsmprovhost.exe', 'sdbinst.exe', 'dism.exe', 'sfc.exe', 'bitsadmin.exe', 'esentutl.exe', 'wmic.exe', 'mousocoreworker.exe', 'ctfmon.exe'
 )) { [void]$script:OfficialWinExe.Add($n) }
 
+# Files that must never be present in the Downloads folder.
 $script:FlaggedDownloads = @('software.exe', 'upgrade.exe')
+
+# Locations where an official Windows executable is allowed to live (drive letter or \Device\HarddiskVolumeN prefix).
 $script:OfficialDirRx = '(?i)^(?:[a-z]:|\\device\\harddiskvolume\d+)\\(?:windows\\(?:system32|syswow64|winsxs|systemapps|servicing|immersivecontrolpanel)\\|windows\\[^\\]+$|program files(?: \(x86\))?\\windows defender(?: advanced threat protection)?\\|programdata\\microsoft\\windows defender\\|program files\\windowsapps\\)'
 
 $script:MicrosoftShippedRoots = @(
@@ -340,11 +357,32 @@ $script:ReaderAllowlist = @('robloxplayerbeta', 'robloxcrashhandler', 'robloxpla
     'securityhealthservice', 'mpdefendercoreservice', 'csrss', 'lsass', 'wininit', 'services', 'searchindexer', 'wmiprvse', 'procexp', 'procexp64', 'taskmgr', 'perfmon', 'resmon', 'svchost')
 $script:DnsAllow = '(?i)(^|\.)(microsoft\.com|clarity\.ms|msftconnecttest\.com|photonengine\.com|matrix\.org|roblox\.com|rbxcdn\.com|rbx\.com|discord\.com|discordapp\.com|gstatic\.com|googleapis\.com|cloudflare\.com|windowsupdate\.com|live\.com|office\.com|nvidia\.com|steampowered\.com|github\.com|githubusercontent\.com)$'
 
+# OBS Studio: executables that legitimately ship with / are launched by OBS.
 $script:ObsKnownExe = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
 foreach ($n in @('obs64.exe', 'obs32.exe', 'obs-browser-page.exe', 'obs-ffmpeg-mux.exe', 'obs-amf-test.exe', 'obs-nvenc-test.exe', 'obs-qsv-test.exe',
     'obs-webrtc-test.exe', 'get-graphics-offsets32.exe', 'get-graphics-offsets64.exe', 'inject-helper32.exe', 'inject-helper64.exe', 'uninstall.exe', 'unins000.exe')) { [void]$script:ObsKnownExe.Add($n) }
 
+# Microsoft C/C++ runtime DLLs. Apps may ship their own copy, but it must be the genuine, Microsoft-signed one.
 $script:CrtDllRx = '(?i)^(vcruntime\d+(_\d+)?|msvcp\d+(_\d+)?|concrt\d+|vccorlib\d+|msvcr\d+|mfc\d+\w*|ucrtbase)\.dll$'
+
+# APIs whose tampering is never acceptable (memory access, thread/process injection, module loading, ETW, AMSI, input and capture hiding).
+$script:HookCritical = @('NtProtectVirtualMemory', 'NtWriteVirtualMemory', 'NtReadVirtualMemory', 'NtAllocateVirtualMemory', 'NtFreeVirtualMemory', 'NtCreateThreadEx',
+    'NtOpenProcess', 'NtQuerySystemInformation', 'NtQueryVirtualMemory', 'NtMapViewOfSection', 'NtUnmapViewOfSection', 'NtSetContextThread', 'NtGetContextThread',
+    'NtQueueApcThread', 'NtSuspendThread', 'NtResumeThread', 'NtTerminateProcess', 'NtCreateSection', 'NtDuplicateObject', 'NtQueryInformationProcess',
+    'NtSetInformationThread', 'NtDeviceIoControlFile', 'NtTraceEvent', 'NtTraceControl', 'EtwEventWrite', 'EtwEventWriteFull', 'EtwEventWriteTransfer',
+    'LdrLoadDll', 'LdrGetProcedureAddress', 'AmsiScanBuffer', 'AmsiScanString', 'AmsiInitialize', 'AmsiOpenSession', 'ReadProcessMemory', 'WriteProcessMemory',
+    'VirtualProtect', 'VirtualProtectEx', 'CreateRemoteThread', 'CreateRemoteThreadEx', 'LoadLibraryA', 'LoadLibraryW', 'LoadLibraryExA', 'LoadLibraryExW',
+    'GetProcAddress', 'SetWindowsHookExA', 'SetWindowsHookExW', 'SetWindowDisplayAffinity', 'GetAsyncKeyState', 'SendInput')
+# Extra named exports checked in addition to the Nt*/Zw* syscall stubs of ntdll.dll and win32u.dll.
+$script:HookApis = @{
+    'ntdll.dll'      = @('EtwEventWrite', 'EtwEventWriteFull', 'EtwEventWriteTransfer', 'LdrLoadDll', 'LdrGetProcedureAddress', 'LdrGetDllHandle', 'RtlAddVectoredExceptionHandler')
+    'kernelbase.dll' = @('ReadProcessMemory', 'WriteProcessMemory', 'VirtualProtect', 'VirtualProtectEx', 'VirtualAlloc', 'VirtualAllocEx', 'CreateRemoteThread', 'CreateRemoteThreadEx',
+        'LoadLibraryA', 'LoadLibraryW', 'LoadLibraryExA', 'LoadLibraryExW', 'GetProcAddress', 'OpenProcess', 'CreateProcessW', 'CreateProcessA', 'CreateProcessInternalW', 'GetModuleHandleW')
+    'kernel32.dll'   = @('ReadProcessMemory', 'WriteProcessMemory', 'VirtualProtect', 'VirtualProtectEx', 'VirtualAlloc', 'VirtualAllocEx', 'CreateRemoteThread', 'CreateRemoteThreadEx',
+        'LoadLibraryA', 'LoadLibraryW', 'LoadLibraryExA', 'LoadLibraryExW', 'GetProcAddress', 'OpenProcess', 'CreateProcessW', 'CreateProcessA')
+    'user32.dll'     = @('SetWindowsHookExA', 'SetWindowsHookExW', 'GetAsyncKeyState', 'GetKeyState', 'SendInput', 'SetWindowDisplayAffinity', 'GetWindowDisplayAffinity', 'FindWindowW', 'EnumWindows')
+    'amsi.dll'       = @('AmsiScanBuffer', 'AmsiScanString', 'AmsiInitialize', 'AmsiOpenSession')
+}
 
 # ============================================================================ HELPERS
 function Get-Indicator {
@@ -404,6 +442,7 @@ function Get-ExampleText {
     return $s
 }
 
+# A file named software.exe / upgrade.exe inside a Downloads folder is flagged.
 function Test-FlaggedDownload {
     param([string]$Path)
     if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
@@ -415,6 +454,8 @@ function Test-FlaggedDownload {
     return $null
 }
 
+# An official Windows executable name must be in a Windows system location and validly signed by Microsoft.
+# Returns a finding string, or $null when the file is genuine.
 function Test-OfficialExe {
     param([string]$Name, [string]$Path)
     if ([string]::IsNullOrWhiteSpace($Name) -or [string]::IsNullOrWhiteSpace($Path)) { return $null }
@@ -430,3 +471,96 @@ function Test-OfficialExe {
     if ($status -ne 'Missing' -and -not $isMs) { return "FAILURE: Official Windows file '$Name' lacks a valid Microsoft signature ($status) -> $Path" }
     return $null
 }
+
+# Fast, time-budgeted file-name search (depth-limited, skips junctions and cache-heavy folders).
+function Find-NamedFiles {
+    param([string[]]$Roots, $Names, [int]$MaxDepth = 3, [int]$BudgetSec = 30)
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $found = New-Object 'System.Collections.Generic.List[string]'
+    $skip = '(?i)^(node_modules|\.git|winsxs|windowsapps|packages|npm-cache|code cache|gpucache|cache)$'
+    $stack = New-Object 'System.Collections.Generic.Stack[object]'
+    foreach ($r in $Roots) { if ($r -and (Test-Path -LiteralPath $r)) { $stack.Push(@($r, 0)) } }
+    while ($stack.Count -gt 0 -and $sw.Elapsed.TotalSeconds -lt $BudgetSec) {
+        $cur = $stack.Pop(); $dir = [string]$cur[0]; $d = [int]$cur[1]
+        try { foreach ($f in [IO.Directory]::EnumerateFiles($dir)) { if ($Names.Contains([IO.Path]::GetFileName($f))) { $found.Add($f) } } } catch {}
+        if ($d -lt $MaxDepth) {
+            try {
+                foreach ($sub in [IO.Directory]::EnumerateDirectories($dir)) {
+                    if ([IO.Path]::GetFileName($sub) -match $skip) { continue }
+                    if (([IO.File]::GetAttributes($sub) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
+                    $stack.Push(@($sub, ($d + 1)))
+                }
+            } catch {}
+        }
+    }
+    return $found.ToArray()
+}
+
+# Fast, time-budgeted folder-name search for indicator keywords.
+function Find-IndicatorFolders {
+    param([string[]]$Roots, [int]$MaxDepth = 2, [int]$BudgetSec = 20)
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $found = New-Object 'System.Collections.Generic.List[string]'
+    $skip = '(?i)^(node_modules|\.git|winsxs|windowsapps|packages|npm-cache|code cache|gpucache|cache)$'
+    $stack = New-Object 'System.Collections.Generic.Stack[object]'
+    foreach ($r in $Roots) { if ($r -and (Test-Path -LiteralPath $r)) { $stack.Push(@($r, 0)) } }
+    while ($stack.Count -gt 0 -and $sw.Elapsed.TotalSeconds -lt $BudgetSec) {
+        $cur = $stack.Pop(); $dir = [string]$cur[0]; $d = [int]$cur[1]
+        if ($d -ge $MaxDepth + 1) { continue }
+        try {
+            foreach ($sub in [IO.Directory]::EnumerateDirectories($dir)) {
+                $leaf = [IO.Path]::GetFileName($sub)
+                if ($leaf -match $skip) { continue }
+                if (([IO.File]::GetAttributes($sub) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
+                if (Get-Indicator $leaf) { $found.Add($sub) }
+                if ($d -lt $MaxDepth) { $stack.Push(@($sub, ($d + 1))) }
+            }
+        } catch {}
+    }
+    return $found.ToArray()
+}
+
+# One DLL/EXE loaded into the Roblox client. Returns $null when it is acceptable.
+function Test-LoadedModule {
+    param([string]$File)
+    $kw = Get-Indicator $File
+    $tag = if ($kw) { " [match: $kw]" } else { '' }
+    $s = Get-SigInfo -Path $File
+    if ($s.Status -ne 'Valid') {
+        $e = [TCAR.Native]::Entropy($File)
+        return "FAILURE: Unsigned module$tag loaded in client ($($s.Status), entropy $e) -> $File"
+    }
+    if ($kw) { return "FAILURE: Module matches unauthorized-software indicator [$kw] -> $File" }
+    if (Test-UserlandPath $File) { return "WARNING: Signed module loaded from a user folder -> $File" }
+    return $null
+}
+
+# One process record. Returns $null when it is acceptable.
+function Test-ProcessRecord {
+    param([string]$Name, [string]$Path)
+    if ($Path) {
+        $nl = $Name.ToLower()
+        if ($script:MasqueradePaths.ContainsKey($nl)) {
+            $ok = $false
+            foreach ($suf in $script:MasqueradePaths[$nl]) { if ($Path.ToLower().EndsWith($suf)) { $ok = $true } }
+            if (-not $ok) { return "FAILURE: System process name '$Name' running from a non-standard path -> $Path" }
+        }
+        $imp = Test-OfficialExe -Name $Name -Path $Path
+        if ($imp) { return $imp }
+        $fd = Test-FlaggedDownload -Path $Path
+        if ($fd) { return $fd }
+    }
+    $kw = Get-Indicator $Name
+    if (-not $kw -and $Path -and -not (Test-TrustedDir $Path)) { $kw = Get-Indicator $Path }
+    if ($Path -and (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        $userland = Test-UserlandPath $Path
+        if ($kw -or $userland) {
+            $s = Get-SigInfo -Path $Path
+            if ($s.Status -ne 'Valid') {
+                return "FAILURE: Unsigned process match '$Name' ($($s.Status)) -> $Path"
+            }
+        }
+    }
+    return $null
+}
+```[cite: 1]

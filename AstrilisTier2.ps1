@@ -1,566 +1,599 @@
-<#
-  Astrilis Union - Compliance Verification v3.3
-  Stage 1 : System verification   (integrity, software and client-process checks)
-  Stage 2 : Process Explorer      (process list shown on the recording)
-  Stage 3 : Session monitor       (live monitoring for the duration of the match)
-  Run in an elevated 64-bit PowerShell window while screen recording.
-  Read-only: nothing on the system is modified. A full report is saved to disk.
-#>
+# No global error swallowing - failed checks get reported as potential tampering
+Clear-Host
 
-$ErrorActionPreference = 'SilentlyContinue'
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$script:Ver = '3.3'
-$script:Width = 78
+function Red($msg)   { Write-Host $msg -ForegroundColor Red }
+function Green($msg) { Write-Host $msg -ForegroundColor Green }
+function Yellow($msg) { Write-Host $msg -ForegroundColor Yellow }
+function Cyan($msg)  { Write-Host $msg -ForegroundColor Cyan }
+function White($msg) { Write-Host $msg -ForegroundColor White }
 
-# ============================================================================ PRE-FLIGHT
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Write-Host ''
-    Write-Host ' Astrilis Union requires Administrator privileges.' -ForegroundColor Red
-    Write-Host ' Right-click PowerShell, choose "Run as administrator", and start it again.' -ForegroundColor Yellow
-    Write-Host ''
-    Pause
-    exit 1
-}
-if ([IntPtr]::Size -ne 8) {
-    Write-Host "`n Astrilis Union requires 64-bit PowerShell." -ForegroundColor Red
-    Pause
-    exit 1
+function Pause-AndScroll($label) {
+    Write-Host ""
+    Write-Host ">>> SCROLL UP AND REVIEW THE $label ABOVE <<<" -ForegroundColor Magenta
+    Write-Host "Press ENTER when you are done reviewing..." -ForegroundColor Yellow
+    Read-Host | Out-Null
 }
 
-# ============================================================================ NATIVE HELPERS
-if (-not ('TCAR.Native' -as [type])) {
-    Add-Type -Namespace TCAR -Name Native -UsingNamespace System.Collections.Generic -MemberDefinition @'
-[DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint a, bool i, int pid);
-[DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
-[DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
-[DllImport("kernel32.dll")] static extern int GetCurrentProcessId();
-[DllImport("kernel32.dll")] static extern bool DuplicateHandle(IntPtr sp, IntPtr sh, IntPtr tp, out IntPtr th, uint acc, bool inh, uint opt);
-[DllImport("kernel32.dll")] static extern int GetProcessId(IntPtr h);
-[DllImport("kernel32.dll")] static extern UIntPtr VirtualQueryEx(IntPtr h, IntPtr addr, out MBI mbi, UIntPtr len);
-[DllImport("ntdll.dll")] static extern int NtQuerySystemInformation(int c, IntPtr b, int l, out int rl);
+Write-Host "=============================================" -ForegroundColor Cyan
+Write-Host "      REAL-TIME SYSTEM INTEGRITY MONITOR     " -ForegroundColor Cyan
+Write-Host "=============================================" -ForegroundColor Cyan
+Write-Host "This script will walk you through several checks." -ForegroundColor White
+Write-Host "You will be asked to scroll and review each section." -ForegroundColor White
+Write-Host "Press ENTER at each prompt to continue." -ForegroundColor Yellow
+Write-Host ""
 
-[StructLayout(LayoutKind.Sequential)]
-public struct MBI {
-    public IntPtr BaseAddress; public IntPtr AllocationBase; public uint AllocationProtect;
-    public ushort PartitionId; public UIntPtr RegionSize; public uint State; public uint Protect; public uint Type;
-}
+# --- [1/16] Prefetch ---
+Write-Host "=== [1/16] PREFETCH FILES (Recent Program Launches) ===" -ForegroundColor Cyan
+Write-Host "Prefetch files reveal every program that has been run on this PC." -ForegroundColor White
+Write-Host "Look for suspicious EXEs - cheats, injectors, loaders, spoofers." -ForegroundColor Yellow
+Write-Host ""
 
-// Counts committed, private, executable+writable memory regions in a process.
-public static long[] ScanRwx(int pid) {
-    IntPtr h = OpenProcess(0x0410, false, pid);
-    if (h == IntPtr.Zero) return null;
-    long count = 0, total = 0, addr = 0;
-    MBI m;
-    UIntPtr sz = (UIntPtr)Marshal.SizeOf(typeof(MBI));
-    while (VirtualQueryEx(h, (IntPtr)addr, out m, sz) != UIntPtr.Zero) {
-        long size = (long)m.RegionSize.ToUInt64();
-        if (m.State == 0x1000 && m.Type == 0x20000 && m.Protect == 0x40) { count++; total += size; }
-        long next = addr + size;
-        if (next <= addr || next > 0x7FFFFFFEFFFFL) break;
-        addr = next;
-    }
-    CloseHandle(h);
-    return new long[] { count, total };
-}
-
-// Finds processes holding a memory-read handle to any of the target PIDs.
-// Speed: only handles whose object type is "Process" are duplicated (the type index is learned
-// from a probe handle), instead of duplicating every readable handle on the system.
-public static int[] FindReaders(int[] targets) {
-    List<int> res = new List<int>();
-    if (targets == null || targets.Length == 0) return res.ToArray();
-    HashSet<int> tset = new HashSet<int>(targets);
-    int me = GetCurrentProcessId();
-    IntPtr probe = OpenProcess(0x1000, false, me);
-    int len = 0x40000;
-    IntPtr buf = Marshal.AllocHGlobal(len);
-    try {
-        int need = 0, st = 0;
-        for (int t = 0; t < 16; t++) {
-            st = NtQuerySystemInformation(0x40, buf, len, out need);
-            if (st == unchecked((int)0xC0000004)) {
-                Marshal.FreeHGlobal(buf);
-                len = (need > len ? need : len * 2) + 0x10000;
-                buf = Marshal.AllocHGlobal(len);
-                continue;
-            }
-            break;
+$prefetchPath = Join-Path $env:SystemRoot "Prefetch"
+$prefetchOk = $false
+try {
+    if (-not (Test-Path $prefetchPath -ErrorAction Stop)) {
+        Red "Prefetch folder not found or not accessible. Try running as Administrator."
+        Red "Possible tampering or blocking - path missing."
+    } else {
+        $prefetchOk = $true
+        $pfItems = Get-ChildItem $prefetchPath -Filter "*.pf" -ErrorAction Stop
+        $pfItems | Sort-Object LastWriteTime -Descending | ForEach-Object {
+            $name = $_.Name -replace "-[A-F0-9]+\.pf$", ""
+            Write-Host "$($_.LastWriteTime)  |  $name" -ForegroundColor Yellow
         }
-        if (st != 0) return null;
-        int p = IntPtr.Size;
-        long count = Marshal.ReadIntPtr(buf).ToInt64();
-        int hdr = p * 2, es = p * 3 + 16;
+    }
+} catch {
+    Red "Prefetch folder access denied or error: $($_.Exception.Message)"
+    Red "Possible blocking or tampering - check could not complete."
+}
 
-        int ptype = -1;
-        if (probe != IntPtr.Zero) {
-            for (long i = 0; i < count; i++) {
-                int off = (int)(hdr + i * es);
-                int owner = (int)Marshal.ReadIntPtr(buf, off + p).ToInt64();
-                if (owner == me && Marshal.ReadIntPtr(buf, off + p * 2) == probe) {
-                    ptype = (int)(ushort)Marshal.ReadInt16(buf, off + p * 3 + 6);
-                    break;
+Write-Host ""
+Write-Host "[INSTRUCTION] Scroll up and look for anything suspicious:" -ForegroundColor Magenta
+Write-Host "  - Cheats" -ForegroundColor White
+Write-Host "  - Spoofers" -ForegroundColor White
+Write-Host "  - and so on" -ForegroundColor White
+Pause-AndScroll "PREFETCH LIST"
+
+if ($prefetchOk) {
+    Write-Host "[ACTION] Opening Prefetch folder in Explorer for visual inspection..." -ForegroundColor Cyan
+    Start-Process "explorer.exe" -ArgumentList $prefetchPath
+    Start-Sleep -Seconds 2
+}
+Write-Host ""
+
+# --- [2/16] Local AppData ---
+Write-Host "=== [2/16] LOCAL APPDATA CONTENTS ===" -ForegroundColor Cyan
+Write-Host "LocalAppData holds per-user app data. Cheats often dump files here." -ForegroundColor Yellow
+Write-Host ""
+
+$localApp = $env:LOCALAPPDATA
+try {
+    Get-ChildItem $localApp -ErrorAction Stop | Sort-Object LastWriteTime -Descending | Select-Object -First 60 | ForEach-Object {
+        if ($_.PSIsContainer) { Write-Host "$($_.LastWriteTime)  |  $($_.Name)" -ForegroundColor White }
+        else { Write-Host "$($_.LastWriteTime)  |  $($_.Name)" -ForegroundColor Yellow }
+    }
+} catch {
+    Red "LocalAppData access denied or error: $($_.Exception.Message)"
+    Red "Possible tampering or blocking - check could not complete."
+}
+
+Write-Host ""
+Write-Host "[INSTRUCTION] Look for folders/files you do not recognize:" -ForegroundColor Magenta
+Write-Host "  - Random string folder names (e.g. xKf29a, tmp_loader)" -ForegroundColor White
+Write-Host "  - Cheat-related names (aimware, esp, triggerbot, spoofer, etc.)" -ForegroundColor White
+Write-Host "  - Recently modified folders that do not match any app you use" -ForegroundColor White
+Pause-AndScroll "LOCAL APPDATA LIST"
+
+Write-Host "[ACTION] Opening LocalAppData in Explorer..." -ForegroundColor Cyan
+Start-Process "explorer.exe" -ArgumentList $localApp
+Start-Sleep -Seconds 2
+Write-Host ""
+
+# --- [3/16] Roaming AppData ---
+Write-Host "=== [3/16] ROAMING APPDATA CONTENTS ===" -ForegroundColor Cyan
+Write-Host "Roaming AppData is another common cheat drop location." -ForegroundColor Yellow
+Write-Host ""
+
+$roaming = $env:APPDATA
+try {
+    Get-ChildItem $roaming -ErrorAction Stop | Sort-Object LastWriteTime -Descending | Select-Object -First 60 | ForEach-Object {
+        if ($_.PSIsContainer) { Write-Host "$($_.LastWriteTime)  |  $($_.Name)" -ForegroundColor White }
+        else { Write-Host "$($_.LastWriteTime)  |  $($_.Name)" -ForegroundColor Yellow }
+    }
+} catch {
+    Red "Roaming AppData access denied or error: $($_.Exception.Message)"
+    Red "Possible tampering or blocking - check could not complete."
+}
+
+Write-Host ""
+Write-Host "[INSTRUCTION] Same as LocalAppData - look for:" -ForegroundColor Magenta
+Write-Host "  - Unfamiliar folder names with recent modification dates" -ForegroundColor White
+Write-Host "  - Any .exe .dll .log files sitting loose in the root" -ForegroundColor White
+Write-Host "  - Folders named after games that have extra subfolders" -ForegroundColor White
+Pause-AndScroll "ROAMING APPDATA LIST"
+
+# open so they can double-check if they want
+Write-Host "[ACTION] Opening Roaming AppData in Explorer..." -ForegroundColor Cyan
+Start-Process "explorer.exe" -ArgumentList $roaming
+Start-Sleep -Seconds 2
+Write-Host ""
+
+# --- [4/16] Defender status ---
+Write-Host "=== [4/16] WINDOWS DEFENDER STATUS ===" -ForegroundColor Cyan
+try {
+    $mp = Get-MpComputerStatus -ErrorAction Stop
+    Green "RealTimeProtection : $($mp.RealTimeProtectionEnabled)"
+    Green "AntivirusEnabled   : $($mp.AntivirusEnabled)"
+    Green "BehaviorMonitor    : $($mp.BehaviorMonitorEnabled)"
+    Green "IOAVProtection     : $($mp.IOAVProtectionEnabled)"
+    Green "TamperProtection   : $($mp.IsTamperProtected)"
+    Green "AntispywareEnabled : $($mp.AntispywareEnabled)"
+} catch {
+    Red "Defender status query failed: $($_.Exception.Message)"
+    Red "Possible tampering or WMI/Defender blocked - treat as suspicious."
+}
+Pause-AndScroll "DEFENDER STATUS"
+Write-Host ""
+
+# --- [5/16] Defender exclusions ---
+Write-Host "=== [5/16] DEFENDER EXCLUSIONS ===" -ForegroundColor Cyan
+Write-Host "Exclusions are added by cheats to hide from Defender scans." -ForegroundColor Yellow
+Write-Host ""
+
+try {
+    $pref = Get-MpPreference -ErrorAction Stop
+    if ($pref.ExclusionPath) {
+        Red "!! Defender Exclusion PATHS found - these should not be here !!"
+        $pref.ExclusionPath | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    } else { Green "No exclusion paths found - GOOD" }
+
+    if ($pref.ExclusionProcess) {
+        Red "!! Defender Exclusion PROCESSES found !!"
+        $pref.ExclusionProcess | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    } else { Green "No exclusion processes found - GOOD" }
+
+    if ($pref.ExclusionExtension) {
+        Red "!! Defender Exclusion EXTENSIONS found !!"
+        $pref.ExclusionExtension | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    } else { Green "No exclusion extensions found - GOOD" }
+} catch {
+    Red "Defender preferences query failed: $($_.Exception.Message)"
+    Red "Possible tampering or access blocked - treat as suspicious."
+}
+Pause-AndScroll "DEFENDER EXCLUSIONS"
+Write-Host "`n"
+
+# --- [6/16] TPM, Virtualization, Secure Boot (all must be ON) ---
+Write-Host "=== [6/16] TPM, VIRTUALIZATION, SECURE BOOT (REQUIRED: ALL ON) ===" -ForegroundColor Cyan
+Write-Host "These three must be enabled. If any is OFF, enable in BIOS/UEFI and re-run." -ForegroundColor Yellow
+Write-Host ""
+
+$tpmOk = $false
+$virtOk = $false
+$secureBootOk = $false
+
+try {
+    $tpm = Get-Tpm -ErrorAction Stop
+    if ($tpm.TpmPresent -and $tpm.TpmReady) {
+        Green "TPM: Present and Ready - OK"
+        $tpmOk = $true
+    } else {
+        Red "TPM: NOT ready or not present. Enable TPM in BIOS/UEFI."
+    }
+} catch {
+    Red "TPM check failed: $($_.Exception.Message). Enable TPM in BIOS/UEFI."
+}
+
+try {
+    $cs = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+    if ($cs.HypervisorPresent) {
+        Green "Virtualization: Hypervisor present - OK"
+        $virtOk = $true
+    } else {
+        Red "Virtualization: NOT present. Enable VT-x/AMD-V (and Hyper-V if needed) in BIOS/UEFI."
+    }
+} catch {
+    Red "Virtualization check failed: $($_.Exception.Message). Enable in BIOS/UEFI."
+}
+
+try {
+    if (-not (Get-Command Confirm-SecureBootUEFI -ErrorAction SilentlyContinue)) { Import-Module SecureBoot -ErrorAction SilentlyContinue }
+    $sb = Confirm-SecureBootUEFI -ErrorAction Stop
+    if ($sb) {
+        Green "Secure Boot: Enabled - OK"
+        $secureBootOk = $true
+    } else {
+        Red "Secure Boot: DISABLED. Enable Secure Boot in BIOS/UEFI."
+    }
+} catch {
+    Red "Secure Boot check failed: $($_.Exception.Message). Enable Secure Boot in BIOS/UEFI."
+}
+
+if (-not ($tpmOk -and $virtOk -and $secureBootOk)) {
+    Red "REQUIREMENT NOT MET: TPM, Virtualization, and Secure Boot must all be ON. Fix in BIOS/UEFI and re-run."
+} else {
+    Green "All three requirements satisfied: TPM, Virtualization, Secure Boot are ON."
+}
+Pause-AndScroll "TPM / VIRTUALIZATION / SECURE BOOT"
+Write-Host ""
+
+# --- [7/16] Memory integrity / HVCI ---
+Write-Host "=== [7/16] MEMORY INTEGRITY AND DEVICE GUARD ===" -ForegroundColor Cyan
+$hvciOk = $false
+try {
+    $hvci = Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity" -ErrorAction Stop
+    $hvciOk = $true
+    if ($hvci.Enabled -eq 1) { Green "Memory Integrity: ENABLED" }
+    else { Red "Memory Integrity: DISABLED - cheats can inject drivers more easily" }
+} catch {
+    Red "HVCI registry read failed: $($_.Exception.Message)"
+    Red "Possible tampering or access denied - cannot confirm Memory Integrity status."
+}
+
+try {
+    Get-CimInstance Win32_DeviceGuard -ErrorAction Stop | ForEach-Object {
+        Green "VBS Status              : $($_.VirtualizationBasedSecurityStatus)"
+        Green "Code Integrity Policy   : $($_.CodeIntegrityPolicyEnforcementStatus)"
+    }
+} catch {
+    Red "Device Guard WMI query failed: $($_.Exception.Message)"
+    Red "Possible blocking - VBS/CI status unknown."
+}
+Pause-AndScroll "MEMORY INTEGRITY STATUS"
+Write-Host ""
+
+# --- [8/16] Loaded drivers (user-space visible) ---
+Write-Host "=== [8/16] LOADED DRIVERS (signature check) ===" -ForegroundColor Cyan
+# WMI only sees what it can - kernel-mapped stuff won't show, but still worth a look
+Write-Host "Listing drivers visible via WMI. Unsigned or unknown signers are risky." -ForegroundColor Yellow
+Write-Host ""
+
+try {
+    $drivers = Get-CimInstance Win32_PnPSignedDriver -ErrorAction Stop
+    $unsignedCount = 0
+    $drivers | ForEach-Object {
+        $signed = $_.IsSigned
+        if ($null -eq $signed -or -not $signed) {
+            $unsignedCount++
+            Yellow "UNSIGNED: $($_.DeviceName) | Driver: $($_.DriverName)"
+        }
+    }
+    if ($unsignedCount -eq 0) {
+        Green "No unsigned drivers reported by WMI (good)."
+    } else {
+        Red "Found $unsignedCount unsigned driver(s) - review above."
+    }
+} catch {
+    Red "Driver enumeration failed: $($_.Exception.Message)"
+    Red "Possible tampering or WMI blocked - cannot verify driver signatures."
+}
+Pause-AndScroll "LOADED DRIVERS"
+Write-Host ""
+
+# --- [9/16] PCI configuration space / vendor & device IDs (spoof check) ---
+Write-Host "=== [9/16] PCI DEVICES - VENDOR/DEVICE IDs (spoof check) ===" -ForegroundColor Cyan
+Write-Host "Enumerating PCI devices via PnP. Known DMA/FPGA-related or spoofed IDs are flagged." -ForegroundColor Yellow
+Write-Host ""
+
+# Known vendor IDs often used for DMA/FPGA hardware (FTDI USB-JTAG on Squirrel, etc.). Flag these.
+$dmaFpgaVendorIds = @('VEN_0403', 'VEN_10EE', 'VEN_1D50', 'VEN_0547')  # FTDI, Xilinx, OpenMoko, PLX
+$knownGoodVendors = @('VEN_8086', 'VEN_1022', 'VEN_10DE', 'VEN_1002', 'VEN_14E4', 'VEN_1969', 'VEN_168C')  # Intel, AMD, NVIDIA, Broadcom, etc.
+try {
+    $pciWithIds = Get-CimInstance Win32_PnPEntity -Filter "DeviceID LIKE 'PCI%'" -ErrorAction Stop
+    $suspiciousCount = 0
+    foreach ($pnp in $pciWithIds) {
+        $id = $pnp.DeviceID
+        if (-not $id) { continue }
+        $venMatch = [regex]::Match($id, 'VEN_([0-9A-Fa-f]{4})')
+        $devMatch = [regex]::Match($id, 'DEV_([0-9A-Fa-f]{4})')
+        if ($venMatch.Success) {
+            $ven = 'VEN_' + $venMatch.Groups[1].Value
+            $dev = if ($devMatch.Success) { 'DEV_' + $devMatch.Groups[1].Value } else { 'DEV_????' }
+            $isDmaFpga = $dmaFpgaVendorIds -contains $ven
+            $isKnownGood = $knownGoodVendors -contains $ven
+            if ($isDmaFpga) {
+                $suspiciousCount++
+                Red "SUSPICIOUS (DMA/FPGA-related): $ven $dev - $($pnp.Name)"
+            } elseif (-not $isKnownGood) {
+                Yellow "Unknown vendor (review): $ven $dev - $($pnp.Name)"
+            }
+        }
+    }
+    if ($suspiciousCount -eq 0) {
+        Green "No known DMA/FPGA-related PCI vendor IDs found in enumeration."
+    } else {
+        Red "Found $suspiciousCount device(s) with DMA/FPGA-associated vendor IDs - investigate."
+    }
+} catch {
+    Red "PCI device enumeration failed: $($_.Exception.Message)"
+    Red "Possible tampering or access denied - cannot verify PCI configuration."
+}
+Pause-AndScroll "PCI VENDOR/DEVICE IDs"
+Write-Host ""
+
+# --- [10/16] FPGA bitstreams / DMA firmware files ---
+Write-Host "=== [10/16] FPGA BITSTREAMS / DMA FIRMWARE SCAN ===" -ForegroundColor Cyan
+Write-Host "Scanning for FPGA bitstream/firmware files." -ForegroundColor Yellow
+Write-Host ""
+
+$bitstreamExt = @('*.bit', '*.rbf', '*.bin')
+$dmaKeywords = @('pcileech', 'squirrel', 'dma', 'fpga', 'pcileech-fpga', 'lambdaconcept')
+$scanDirs = @(
+    [Environment]::GetFolderPath('UserProfile') + "\Downloads",
+    $env:TEMP,
+    $env:LOCALAPPDATA,
+    $env:APPDATA
+)
+$foundSuspicious = $false
+foreach ($dir in $scanDirs) {
+    if (-not (Test-Path $dir -ErrorAction SilentlyContinue)) { continue }
+    try {
+        Get-ChildItem $dir -Recurse -Include $bitstreamExt -ErrorAction Stop | ForEach-Object {
+            $foundSuspicious = $true
+            Yellow "FPGA bitstream/firmware: $($_.FullName)"
+        }
+        Get-ChildItem $dir -Recurse -File -ErrorAction SilentlyContinue | Where-Object {
+            $name = $_.Name.ToLower()
+            ($dmaKeywords | Where-Object { $name -like "*$_*" }).Count -gt 0
+        } | Select-Object -First 30 | ForEach-Object {
+            $foundSuspicious = $true
+            Yellow "DMA/fpga-related name: $($_.FullName)"
+        }
+    } catch {
+        Red "Scan of $dir failed: $($_.Exception.Message)"
+    }
+}
+if (-not $foundSuspicious) { Green "No FPGA bitstreams or obvious DMA-related filenames found in user folders." }
+else { Red "Review the files above - FPGA/DMA firmware or tools may be present." }
+Pause-AndScroll "FPGA / DMA FIRMWARE SCAN"
+Write-Host ""
+
+# --- [11/16] Memory baseline note (continuous monitoring runs during process list) ---
+Write-Host "=== [11/16] MEMORY & COUNTER BASELINE ===" -ForegroundColor Cyan
+Write-Host "Memory timing is monitored continuously while the process list runs below. Press CTRL+C to stop and see your score." -ForegroundColor Yellow
+Write-Host ""
+
+# --- [12/16] Vulnerable drivers & kernel debugger (bypass hardening) ---
+Write-Host "=== [12/16] VULNERABLE DRIVERS & KERNEL DEBUGGER ===" -ForegroundColor Cyan
+Write-Host "Checking for known vulnerable drivers (capcom.sys, gdrv.sys, etc.) and kernel debugger." -ForegroundColor Yellow
+Write-Host ""
+
+$vulnDrivers = @('capcom.sys', 'gdrv.sys', 'DBUtil_2_3.sys', 'AsIO.sys', 'RTCore64.sys', 'PROCEXP152.sys')
+$driversPath = Join-Path $env:SystemRoot "System32\drivers"
+$foundVuln = $false
+try {
+    foreach ($name in $vulnDrivers) {
+        $p = Join-Path $driversPath $name
+        if (Test-Path $p -ErrorAction Stop) {
+            $foundVuln = $true
+            Red "VULNERABLE DRIVER PRESENT: $name - used for kernel execution / memory access. Remove or block."
+        }
+    }
+    if (-not $foundVuln) { Green "No known vulnerable drivers found in System32\drivers." }
+} catch {
+    Red "Driver path check failed: $($_.Exception.Message)"
+}
+
+try {
+    $sm = Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager" -ErrorAction Stop
+    if ($sm.GlobalFlag -and $sm.GlobalFlag -ne 0) {
+        Yellow "Session Manager GlobalFlag set - possible debugging / bypass environment."
+    }
+    $bcd = & bcdedit /enum 2>$null
+    if ($bcd -match 'debug\s+Yes') {
+        Yellow "Boot configuration has debug enabled - possible kernel debugging."
+    }
+    if ($bcd -match 'testsigning\s+Yes') {
+        Red "Test signing is ON - kernel can load unsigned drivers. Disable for integrity."
+    }
+} catch {
+    if ($_.Exception.Message -notmatch 'Cannot find') { Red "Session Manager registry read failed." }
+}
+Pause-AndScroll "VULNERABLE DRIVERS / DEBUGGER"
+Write-Host ""
+
+# --- [13/16] Startup / Run keys ---
+Write-Host "=== [13/16] STARTUP / RUN KEYS ===" -ForegroundColor Cyan
+Write-Host "Persistence via Run/RunOnce. Blocked reads = possible tampering." -ForegroundColor Yellow
+Write-Host ""
+
+$runKeys = @(
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+    "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce",
+    "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"
+)
+foreach ($rk in $runKeys) {
+    try {
+        $val = Get-ItemProperty $rk -ErrorAction Stop
+        $val.PSObject.Properties | Where-Object { $_.Name -notmatch '^(PSPath|PSParentPath|PSChildName|PSDrive|PSProvider)' } | ForEach-Object {
+            $exePath = $_.Value -replace '^[""]?([^""]+).*', '$1'
+            Write-Host "  $($_.Name) => $exePath" -ForegroundColor White
+            if ($exePath -match '\.(exe|dll|bat|cmd)$' -and (Test-Path $exePath -ErrorAction SilentlyContinue)) {
+                $sig = Get-AuthenticodeSignature $exePath -ErrorAction SilentlyContinue
+                if ($sig -and $sig.Status -ne 'Valid') {
+                    Red "    ^^ UNSIGNED or INVALID signature - suspicious"
                 }
             }
         }
-
-        IntPtr self = GetCurrentProcess();
-        Dictionary<int, IntPtr> opened = new Dictionary<int, IntPtr>();
-        HashSet<int> done = new HashSet<int>();
-        for (long i = 0; i < count; i++) {
-            int off = (int)(hdr + i * es);
-            int owner = (int)Marshal.ReadIntPtr(buf, off + p).ToInt64();
-            if (owner <= 4 || done.Contains(owner) || tset.Contains(owner)) continue;
-            if (ptype >= 0 && (int)(ushort)Marshal.ReadInt16(buf, off + p * 3 + 6) != ptype) continue;
-            uint access = (uint)Marshal.ReadInt32(buf, off + p * 3);
-            if ((access & 0x10) == 0) continue;
-            IntPtr hv = Marshal.ReadIntPtr(buf, off + p * 2);
-            IntPtr oh;
-            if (!opened.TryGetValue(owner, out oh)) { oh = OpenProcess(0x40, false, owner); opened[owner] = oh; }
-            if (oh == IntPtr.Zero) continue;
-            IntPtr dup;
-            if (!DuplicateHandle(oh, hv, self, out dup, 0, false, 2)) continue;
-            try {
-                int op = GetProcessId(dup);
-                if (op != 0 && tset.Contains(op)) { res.Add(owner); done.Add(owner); }
-            } catch { } finally { CloseHandle(dup); }
+    } catch {
+        if ($_.Exception.Message -match 'Cannot find path') {
+            Green "  (no entries or key missing - ok)"
+        } else {
+            Red "  Run key read failed for $rk : $($_.Exception.Message)"
+            Red "  Possible tampering or access denied."
         }
-        foreach (KeyValuePair<int, IntPtr> kv in opened) { if (kv.Value != IntPtr.Zero) CloseHandle(kv.Value); }
-    } catch { return null; } finally { Marshal.FreeHGlobal(buf); if (probe != IntPtr.Zero) CloseHandle(probe); }
-    return res.ToArray();
-}
-
-[DllImport("kernel32.dll")] static extern bool ReadProcessMemory(IntPtr h, IntPtr addr, byte[] buf, int size, out IntPtr read);
-
-static bool Rd(IntPtr h, long addr, byte[] buf, int len) {
-    IntPtr n;
-    if (!ReadProcessMemory(h, (IntPtr)addr, buf, len, out n)) return false;
-    return n.ToInt64() == len;
-}
-
-static int RvaToOff(byte[] d, uint rva, int secTab, int nsec) {
-    for (int i = 0; i < nsec; i++) {
-        int s = secTab + i * 40;
-        uint vsz = BitConverter.ToUInt32(d, s + 8);
-        uint va = BitConverter.ToUInt32(d, s + 12);
-        uint rsz = BitConverter.ToUInt32(d, s + 16);
-        uint raw = BitConverter.ToUInt32(d, s + 20);
-        uint span = vsz > rsz ? vsz : rsz;
-        if (rva >= va && rva < va + span) return (int)(rva - va + raw);
     }
-    return -1;
 }
+Pause-AndScroll "STARTUP / RUN KEYS"
+Write-Host ""
 
-static string Hex(byte[] b, int off, int n) {
-    System.Text.StringBuilder sb = new System.Text.StringBuilder();
-    for (int i = 0; i < n; i++) sb.Append(b[off + i].ToString("X2"));
-    return sb.ToString();
+# --- [14/16] Malwarebytes ---
+Write-Host "=== [14/16] MALWAREBYTES EXCLUSIONS ===" -ForegroundColor Cyan
+$mbPath = "HKLM:\SOFTWARE\Malwarebytes"
+try {
+    if (Test-Path $mbPath -ErrorAction Stop) {
+        $mb = Get-ChildItem $mbPath -Recurse -ErrorAction Stop
+        if ($mb) {
+            Red "Malwarebytes registry entries detected:"
+            $mb | ForEach-Object { Write-Host "  $($_.Name)" -ForegroundColor Red }
+        } else { Green "No suspicious Malwarebytes registry entries" }
+    } else { Yellow "Malwarebytes not detected on this system" }
+} catch {
+    Red "Malwarebytes registry read failed: $($_.Exception.Message)"
+    Red "Possible access denied - treat as suspicious."
 }
+Pause-AndScroll "MALWAREBYTES SECTION"
+Write-Host ""
 
-// Recognises the common inline-hook trampolines at the start of a function (directly, after
-// "mov r10,rcx", or after "mov r10,rcx; mov eax,imm32") and returns the redirect destination.
-static long HookDest(IntPtr h, long addr, byte[] b, out string kind) {
-    kind = "";
-    int[] offs = new int[] { 0, 3, 8 };
-    foreach (int k in offs) {
-        if (k + 12 > b.Length) continue;
-        if (b[k] == 0xE9) { kind = "jmp"; return addr + k + 5 + BitConverter.ToInt32(b, k + 1); }
-        if (b[k] == 0xEB) { kind = "short-jmp"; return addr + k + 2 + (sbyte)b[k + 1]; }
-        if (b[k] == 0xFF && b[k + 1] == 0x25) {
-            kind = "jmp-indirect";
-            byte[] q = new byte[8];
-            if (Rd(h, addr + k + 6 + BitConverter.ToInt32(b, k + 2), q, 8)) return BitConverter.ToInt64(q, 0);
-            return 0;
+# --- [15/16] Downloads scan + Authenticode ---
+Write-Host "=== [15/16] DOWNLOADS FOLDER SCAN ===" -ForegroundColor Cyan
+Write-Host "Scanning for executables and scripts in Downloads. Unsigned = flag." -ForegroundColor Yellow
+Write-Host ""
+
+$downloadsDir = [Environment]::GetFolderPath('UserProfile') + "\Downloads"
+try {
+    Get-ChildItem $downloadsDir -Recurse -ErrorAction Stop | Where-Object { $_.Extension -match "\.(exe|dll|sys|bat|ps1|vbs|cmd)$" } |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 40 | ForEach-Object {
+            Write-Host "$($_.LastWriteTime)  |  $($_.FullName)" -ForegroundColor Yellow
+            $sig = Get-AuthenticodeSignature $_.FullName -ErrorAction SilentlyContinue
+            if ($sig -and $sig.Status -ne 'Valid') {
+                Red "  ^^ UNSIGNED or INVALID - review"
+            }
         }
-        if (b[k] == 0x48 && b[k + 1] == 0xB8 && b[k + 10] == 0xFF && b[k + 11] == 0xE0) { kind = "mov-jmp"; return BitConverter.ToInt64(b, k + 2); }
-        if (b[k] == 0x49 && b[k + 1] == 0xBB && b[k + 10] == 0x41 && b[k + 11] == 0xFF) { kind = "mov-jmp"; return BitConverter.ToInt64(b, k + 2); }
-        if (b[k] == 0x68 && b[k + 5] == 0xC3) { kind = "push-ret"; return (long)BitConverter.ToInt32(b, k + 1); }
-    }
-    return 0;
+} catch {
+    Red "Downloads folder access denied or error: $($_.Exception.Message)"
+    Red "Possible tampering or blocking - check could not complete."
 }
 
-// Compares the first 16 bytes of exported functions of a loaded system DLL in a target process
-// against the same bytes in the on-disk file. ntPrefix selects every Nt*/Zw* export; extra adds named exports.
-// Each result line:  name|kind|destinationHex|memoryBytes|diskBytes   (kind = redirect type or "modified")
-public static string[] ScanHooks(int pid, string diskPath, long targetBase, bool ntPrefix, string[] extra) {
-    List<string> res = new List<string>();
-    byte[] d;
-    try { d = System.IO.File.ReadAllBytes(diskPath); } catch { return null; }
-    IntPtr h = OpenProcess(0x1010, false, pid);
-    if (h == IntPtr.Zero) return null;
-    try {
-        if (d.Length < 0x400) return null;
-        int pe = BitConverter.ToInt32(d, 0x3C);
-        if (pe < 0 || pe + 0x100 > d.Length || BitConverter.ToUInt32(d, pe) != 0x4550) return null;
-        int nsec = BitConverter.ToUInt16(d, pe + 6);
-        int osz = BitConverter.ToUInt16(d, pe + 20);
-        int opt = pe + 24;
-        if (BitConverter.ToUInt16(d, opt) != 0x20B) return null;
-        int secTab = opt + osz;
-        uint expRva = BitConverter.ToUInt32(d, opt + 112);
-        uint expSize = BitConverter.ToUInt32(d, opt + 116);
-        int eo = RvaToOff(d, expRva, secTab, nsec);
-        if (eo < 0) return null;
-        int nNames = BitConverter.ToInt32(d, eo + 24);
-        int aF = RvaToOff(d, BitConverter.ToUInt32(d, eo + 28), secTab, nsec);
-        int aN = RvaToOff(d, BitConverter.ToUInt32(d, eo + 32), secTab, nsec);
-        int aO = RvaToOff(d, BitConverter.ToUInt32(d, eo + 36), secTab, nsec);
-        if (aF < 0 || aN < 0 || aO < 0) return null;
-        HashSet<string> want = new HashSet<string>();
-        if (extra != null) { foreach (string x in extra) want.Add(x); }
-        byte[] mem = new byte[24];
-        byte[] db = new byte[16];
-        for (int i = 0; i < nNames; i++) {
-            int no = RvaToOff(d, BitConverter.ToUInt32(d, aN + i * 4), secTab, nsec);
-            if (no < 0) continue;
-            int e = no;
-            while (e < d.Length && d[e] != 0) e++;
-            string name = System.Text.Encoding.ASCII.GetString(d, no, e - no);
-            bool isNt = ntPrefix && name.Length > 2 && (name.StartsWith("Nt") || name.StartsWith("Zw")) && char.IsUpper(name[2]);
-            if (!isNt && !want.Contains(name)) continue;
-            int ord = BitConverter.ToUInt16(d, aO + i * 2);
-            uint frva = BitConverter.ToUInt32(d, aF + ord * 4);
-            if (frva >= expRva && frva < expRva + expSize) continue;
-            int fo = RvaToOff(d, frva, secTab, nsec);
-            if (fo < 0 || fo + 24 > d.Length) continue;
-            long addr = targetBase + frva;
-            if (!Rd(h, addr, mem, 24)) continue;
-            bool same = true;
-            for (int j = 0; j < 16; j++) { if (mem[j] != d[fo + j]) { same = false; break; } }
-            if (same) continue;
-            string kind;
-            long dest = HookDest(h, addr, mem, out kind);
-            Array.Copy(d, fo, db, 0, 16);
-            res.Add(name + "|" + (kind.Length > 0 ? kind : "modified") + "|" + dest.ToString("X") + "|" + Hex(mem, 0, 16) + "|" + Hex(db, 0, 16));
-        }
-    } catch { return null; } finally { CloseHandle(h); }
-    return res.ToArray();
+Write-Host ""
+Write-Host "[INSTRUCTION] Look for:" -ForegroundColor Magenta
+Write-Host "  - Cheat EXEs, injectors, DLLs" -ForegroundColor White
+Write-Host "  - ZIP extractions of cheat tools" -ForegroundColor White
+Pause-AndScroll "DOWNLOADS SCAN"
+Write-Host ""
+
+# --- [16/16] Live process monitor + memory timing (no whitelist; press CTRL+C for score) ---
+Write-Host "=== [16/16] LIVE PROCESS MONITOR + MEMORY TIMING ===" -ForegroundColor Cyan
+Write-Host "Monitoring ALL new processes and memory counters. No whitelist - every new process is listed." -ForegroundColor White
+Write-Host "Press CTRL+C to stop and see your session score." -ForegroundColor Yellow
+Write-Host ""
+
+$known = @{}
+$sessionNewProcesses = 0
+$sessionMemorySpikes = 0
+$sessionVulnDriverLoads = 0
+$lastMemBytes = $null
+$loopCount = 0
+$loadedVulnDriversSeen = @{}
+$vulnDriverNames = @('gdrv.sys', 'capcom.sys', 'DBUtil_2_3.sys', 'AsIO.sys', 'RTCore64.sys', 'PROCEXP152.sys')
+try {
+    Get-Process -ErrorAction Stop | ForEach-Object { $known[$_.Id] = $_.ProcessName }
+} catch {
+    Red "Initial process snapshot failed: $($_.Exception.Message)"
 }
 
-// Finds direct/indirect system-call stubs ("mov r10,rcx; mov eax,imm; ... syscall") inside executable
-// memory that is not an image (private or mapped regions). Legitimate code only issues syscalls from ntdll/win32u.
-// Each result line:  regionBaseHex|private-or-mapped|offsetHex
-public static string[] ScanSyscallStubs(int pid) {
-    List<string> res = new List<string>();
-    IntPtr h = OpenProcess(0x0410, false, pid);
-    if (h == IntPtr.Zero) return null;
-    long addr = 0, scanned = 0;
-    MBI m;
-    UIntPtr sz = (UIntPtr)Marshal.SizeOf(typeof(MBI));
-    while (VirtualQueryEx(h, (IntPtr)addr, out m, sz) != UIntPtr.Zero) {
-        long size = (long)m.RegionSize.ToUInt64();
-        uint pr = m.Protect & 0xFF;
-        bool exec = (pr == 0x10 || pr == 0x20 || pr == 0x40 || pr == 0x80);
-        if (m.State == 0x1000 && m.Type != 0x1000000 && exec && size > 0 && size <= 0x2000000 && scanned < 0x10000000) {
-            byte[] buf = new byte[size];
-            if (Rd(h, m.BaseAddress.ToInt64(), buf, (int)size)) {
-                scanned += size;
-                for (int i = 0; i + 2 < buf.Length; i++) {
-                    if (buf[i] == 0x0F && buf[i + 1] == 0x05) {
-                        int lo = i - 24;
-                        if (lo < 0) lo = 0;
-                        bool stub = false;
-                        for (int k = lo; k + 3 < i; k++) {
-                            if (buf[k] == 0x4C && buf[k + 1] == 0x8B && buf[k + 2] == 0xD1 && buf[k + 3] == 0xB8) { stub = true; break; }
-                        }
-                        if (stub) {
-                            res.Add(m.BaseAddress.ToInt64().ToString("X") + "|" + (m.Type == 0x20000 ? "private" : "mapped") + "|" + i.ToString("X"));
-                            break;
-                        }
+Write-Host "Baseline captured. Watching for new processes, memory spikes, and loaded vulnerable drivers..." -ForegroundColor Green
+Write-Host ""
+
+trap { break }
+
+while ($true) {
+    Start-Sleep -Seconds 1
+    $loopCount++
+
+    # Memory timing check every 5 seconds while process list runs
+    if (($loopCount % 5) -eq 0) {
+        try {
+            $memNow = (Get-Counter '\Memory\Committed Bytes' -ErrorAction Stop).CounterSamples.CookedValue
+            if ($null -ne $lastMemBytes -and $lastMemBytes -gt 0) {
+                $pct = [Math]::Abs($memNow - $lastMemBytes) / $lastMemBytes
+                if ($pct -gt 0.15) {
+                    $sessionMemorySpikes++
+                    $ts = Get-Date -Format "HH:mm:ss"
+                    Red "[$ts] *** MEMORY SPIKE DETECTED *** (committed change ~$([Math]::Round($pct * 100))%)"
+                }
+            }
+            $lastMemBytes = $memNow
+        } catch { }
+
+        # Check for vulnerable drivers LOADED in kernel (ring 0) - catches gdrv.sys/capcom.sys load + ring 0 execution e.g. DbgPrint
+        try {
+            $loaded = Get-CimInstance Win32_SystemDriver -ErrorAction Stop
+            foreach ($drv in $loaded) {
+                $path = $drv.PathName
+                if (-not $path) { continue }
+                $pathLower = $path.ToLower()
+                foreach ($vuln in $vulnDriverNames) {
+                    if ($pathLower -like "*$($vuln.ToLower())*" -and -not $loadedVulnDriversSeen[$path]) {
+                        $loadedVulnDriversSeen[$path] = $true
+                        $sessionVulnDriverLoads++
+                        $ts = Get-Date -Format "HH:mm:ss"
+                        Red "[$ts] *** VULNERABLE DRIVER LOADED (RING 0) ***: $vuln"
+                        Red "    Path: $path - Ring 0 code (e.g. DbgPrint) may be executing."
                     }
                 }
             }
-        }
-        long next = addr + size;
-        if (next <= addr || next > 0x7FFFFFFEFFFFL) break;
-        addr = next;
-        if (res.Count >= 20) break;
+        } catch { }
     }
-    CloseHandle(h);
-    return res.ToArray();
-}
 
-// Shannon entropy of the first 4 MB of a file (packed/encrypted binaries score ~7.2-7.95).
-public static double Entropy(string path) {
-    try {
-        using (System.IO.FileStream fs = new System.IO.FileStream(path, System.IO.FileMode.Open, System.IO.FileAccess.Read, System.IO.FileShare.ReadWrite)) {
-            int n = (int)Math.Min(fs.Length, 4194304L);
-            if (n <= 0) return 0.0;
-            byte[] b = new byte[n];
-            int r = fs.Read(b, 0, n);
-            if (r <= 0) return 0.0;
-            int[] c = new int[256];
-            for (int i = 0; i < r; i++) c[b[i]]++;
-            double e = 0.0;
-            for (int i = 0; i < 256; i++) { if (c[i] > 0) { double q = c[i] / (double)r; e -= q * Math.Log(q, 2); } }
-            return Math.Round(e, 3);
-        }
-    } catch { return -1.0; }
-}
-'@ -ErrorAction SilentlyContinue
-}
+    $current = $null
+    try { $current = Get-Process -ErrorAction Stop }
+    catch { continue }
+    if (-not $current) { continue }
 
-# ============================================================================ DATA
-$script:Indicators = @(
-    'matcha', 'isabelle', 'severe', 'aegis', 'potassium', 'lattice', 'spectre', 'matrix', 'clarity', 'loader', 'photon', 'valex', 'aimmy',
-    'keyauth', 'xeno', 'melatonin', 'evolve', 'serotonin', 'ghostify', 'dx9ware', 'unicore', 'lumen', 'monolith', 'skript',
-    'ntfsdump', 'atlanta', 'eulen', 'hammafia', 'redengine', 'susano', 'bypass', 'volt', 'fleasion',
-    'solara', 'wave', 'synapse', 'krnl', 'fluxus', 'celery', 'wearedevs', 'injector', 'executor'
-)
+    foreach ($proc in $current) {
+        if (-not $known.ContainsKey($proc.Id)) {
+            $procPath = $null
+            try { $procPath = $proc.Path }
+            catch { }
 
-# Official Windows executables. Any file with one of these names must live in a Windows system location
-# AND carry a valid Microsoft signature, otherwise it is treated as an impostor.
-# (Kept separate from $Indicators: those are substring keywords, and adding system names there would
-#  match legitimate files.)
-$script:OfficialWinExe = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-foreach ($n in @(
-    'ctfmon.exe', 'securityhealthservice.exe', 'securityhealthsystray.exe', 'securityhealthhost.exe', 'msmpeng.exe', 'nissrv.exe', 'mpcmdrun.exe',
-    'mpdefendercoreservice.exe', 'smartscreen.exe', 'svchost.exe', 'explorer.exe', 'csrss.exe', 'lsass.exe', 'lsaiso.exe', 'services.exe',
-    'winlogon.exe', 'wininit.exe', 'smss.exe', 'dwm.exe', 'taskhostw.exe', 'taskhost.exe', 'taskeng.exe', 'runtimebroker.exe', 'conhost.exe',
-    'dllhost.exe', 'sihost.exe', 'fontdrvhost.exe', 'spoolsv.exe', 'searchindexer.exe', 'searchhost.exe', 'searchprotocolhost.exe',
-    'searchfilterhost.exe', 'startmenuexperiencehost.exe', 'shellexperiencehost.exe', 'applicationframehost.exe', 'textinputhost.exe',
-    'wmiprvse.exe', 'audiodg.exe', 'backgroundtaskhost.exe', 'taskmgr.exe', 'cmd.exe', 'powershell.exe', 'regedit.exe', 'reg.exe', 'notepad.exe',
-    'mshta.exe', 'wscript.exe', 'cscript.exe', 'rundll32.exe', 'regsvr32.exe', 'msiexec.exe', 'wuauclt.exe', 'usocoreworker.exe',
-    'musnotification.exe', 'werfault.exe', 'wermgr.exe', 'sppsvc.exe', 'trustedinstaller.exe', 'tiworker.exe', 'consent.exe', 'logonui.exe',
-    'userinit.exe', 'mmc.exe', 'control.exe', 'dashost.exe', 'unsecapp.exe', 'wlanext.exe', 'compattelrunner.exe', 'lockapp.exe',
-    'systemsettings.exe', 'sgrmbroker.exe', 'wudfhost.exe', 'msdtc.exe', 'schtasks.exe', 'taskkill.exe', 'tasklist.exe', 'net.exe', 'net1.exe',
-    'netsh.exe', 'sc.exe', 'certutil.exe', 'bcdedit.exe', 'fsutil.exe', 'wevtutil.exe', 'vssadmin.exe', 'whoami.exe', 'ping.exe', 'ipconfig.exe',
-    'wsmprovhost.exe', 'sdbinst.exe', 'dism.exe', 'sfc.exe', 'bitsadmin.exe', 'esentutl.exe', 'wmic.exe', 'mousocoreworker.exe', 'ctfmon.exe'
-)) { [void]$script:OfficialWinExe.Add($n) }
-
-# Files that must never be present in the Downloads folder.
-$script:FlaggedDownloads = @('software.exe', 'upgrade.exe')
-
-# Locations where an official Windows executable is allowed to live (drive letter or \Device\HarddiskVolumeN prefix).
-$script:OfficialDirRx = '(?i)^(?:[a-z]:|\\device\\harddiskvolume\d+)\\(?:windows\\(?:system32|syswow64|winsxs|systemapps|servicing|immersivecontrolpanel)\\|windows\\[^\\]+$|program files(?: \(x86\))?\\windows defender(?: advanced threat protection)?\\|programdata\\microsoft\\windows defender\\|program files\\windowsapps\\)'
-
-$script:MicrosoftShippedRoots = @(
-    '3B1EFD3A66EA28B16697394703A72CA340A05BD5', '8F43288AD272F3103B6FB1428485EA3014C0BCFE', 'CDD4EEAE6000AC7F40C3802C171E30148030C072',
-    'A43489159A520F0D93D032CCAF37E7FE20A8B419', '7F88CD7223F3C813818C994614A89C99FA3B5247', '73A5E64A3BFF8316FF0EDCCC618A906E4EAE4D74',
-    '999A64C37FF47D9FAB95F14769891460EEC4C3C5', '06F1AA330B927B753A40E68CDF22E34BCBEF3352', 'F40042E2E5F7E8EF8189FED15519AECE42C3BFA2',
-    '31F9FC8BA3805986B721EA7295C65B3A44534274', '0119E81BE9A14CD8E22F40AC118C687ECBA3F4D8', '92B46C76E13054E104F230517E6E504D43AB10B5',
-    '245C97DF7514E7CF2DF8BE72AE957B9E04741E85', 'BE36A4562FB2EE05DBB3D32323ADF445084ED656', '18F7C1FCC3090203FD5BAA2F861A754976C8DD25'
-)
-$script:VulnDrivers = @(
-    'iqvw64e.sys', 'iqvw64.sys', 'gdrv.sys', 'dbutil_2_3.sys', 'kprocesshacker.sys', 'mhyprot2.sys', 'mhyprot3.sys', 'capcom.sys',
-    'physmem.sys', 'hw.sys', 'speedfan.sys', 'viragt64.sys', 'tfsysmon.sys', 'amsdk.sys', 'adv64drv.sys', 'bs_def64.sys', 'bs_hwmio64.sys',
-    'iomap64.sys', 'asupio.sys', 'ucorew64.sys', 'msio64.sys', 'ntiolib_x64.sys', 'winio64.sys', 'inpoutx64.sys', 'kevp64.sys',
-    'rtcore64.sys', 'winring0x64.sys', 'winring0.sys', 'eneio64.sys', 'asio.sys', 'asio2.sys', 'asio3.sys', 'directio64.sys', 'cpuz141.sys', 'atillk64.sys', 'amifldrv64.sys'
-)
-$script:MasqueradePaths = @{
-    'svchost.exe' = @('\windows\system32\svchost.exe', '\windows\syswow64\svchost.exe'); 'explorer.exe' = @('\windows\explorer.exe')
-    'csrss.exe' = @('\windows\system32\csrss.exe'); 'lsass.exe' = @('\windows\system32\lsass.exe'); 'services.exe' = @('\windows\system32\services.exe')
-    'winlogon.exe' = @('\windows\system32\winlogon.exe'); 'dwm.exe' = @('\windows\system32\dwm.exe'); 'taskhostw.exe' = @('\windows\system32\taskhostw.exe')
-    'runtimebroker.exe' = @('\windows\system32\runtimebroker.exe'); 'conhost.exe' = @('\windows\system32\conhost.exe'); 'dllhost.exe' = @('\windows\system32\dllhost.exe', '\windows\syswow64\dllhost.exe')
-}
-$script:ReaderAllowlist = @('robloxplayerbeta', 'robloxcrashhandler', 'robloxplayerlauncher', 'bloxstrap', 'fishstrap', 'msmpeng', 'nissrv',
-    'securityhealthservice', 'mpdefendercoreservice', 'csrss', 'lsass', 'wininit', 'services', 'searchindexer', 'wmiprvse', 'procexp', 'procexp64', 'taskmgr', 'perfmon', 'resmon', 'svchost')
-$script:DnsAllow = '(?i)(^|\.)(microsoft\.com|clarity\.ms|msftconnecttest\.com|photonengine\.com|matrix\.org|roblox\.com|rbxcdn\.com|rbx\.com|discord\.com|discordapp\.com|gstatic\.com|googleapis\.com|cloudflare\.com|windowsupdate\.com|live\.com|office\.com|nvidia\.com|steampowered\.com|github\.com|githubusercontent\.com)$'
-
-# OBS Studio: executables that legitimately ship with / are launched by OBS.
-$script:ObsKnownExe = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-foreach ($n in @('obs64.exe', 'obs32.exe', 'obs-browser-page.exe', 'obs-ffmpeg-mux.exe', 'obs-amf-test.exe', 'obs-nvenc-test.exe', 'obs-qsv-test.exe',
-    'obs-webrtc-test.exe', 'get-graphics-offsets32.exe', 'get-graphics-offsets64.exe', 'inject-helper32.exe', 'inject-helper64.exe', 'uninstall.exe', 'unins000.exe')) { [void]$script:ObsKnownExe.Add($n) }
-
-# Microsoft C/C++ runtime DLLs. Apps may ship their own copy, but it must be the genuine, Microsoft-signed one.
-$script:CrtDllRx = '(?i)^(vcruntime\d+(_\d+)?|msvcp\d+(_\d+)?|concrt\d+|vccorlib\d+|msvcr\d+|mfc\d+\w*|ucrtbase)\.dll$'
-
-# APIs whose tampering is never acceptable (memory access, thread/process injection, module loading, ETW, AMSI, input and capture hiding).
-$script:HookCritical = @('NtProtectVirtualMemory', 'NtWriteVirtualMemory', 'NtReadVirtualMemory', 'NtAllocateVirtualMemory', 'NtFreeVirtualMemory', 'NtCreateThreadEx',
-    'NtOpenProcess', 'NtQuerySystemInformation', 'NtQueryVirtualMemory', 'NtMapViewOfSection', 'NtUnmapViewOfSection', 'NtSetContextThread', 'NtGetContextThread',
-    'NtQueueApcThread', 'NtSuspendThread', 'NtResumeThread', 'NtTerminateProcess', 'NtCreateSection', 'NtDuplicateObject', 'NtQueryInformationProcess',
-    'NtSetInformationThread', 'NtDeviceIoControlFile', 'NtTraceEvent', 'NtTraceControl', 'EtwEventWrite', 'EtwEventWriteFull', 'EtwEventWriteTransfer',
-    'LdrLoadDll', 'LdrGetProcedureAddress', 'AmsiScanBuffer', 'AmsiScanString', 'AmsiInitialize', 'AmsiOpenSession', 'ReadProcessMemory', 'WriteProcessMemory',
-    'VirtualProtect', 'VirtualProtectEx', 'CreateRemoteThread', 'CreateRemoteThreadEx', 'LoadLibraryA', 'LoadLibraryW', 'LoadLibraryExA', 'LoadLibraryExW',
-    'GetProcAddress', 'SetWindowsHookExA', 'SetWindowsHookExW', 'SetWindowDisplayAffinity', 'GetAsyncKeyState', 'SendInput')
-# Extra named exports checked in addition to the Nt*/Zw* syscall stubs of ntdll.dll and win32u.dll.
-$script:HookApis = @{
-    'ntdll.dll'      = @('EtwEventWrite', 'EtwEventWriteFull', 'EtwEventWriteTransfer', 'LdrLoadDll', 'LdrGetProcedureAddress', 'LdrGetDllHandle', 'RtlAddVectoredExceptionHandler')
-    'kernelbase.dll' = @('ReadProcessMemory', 'WriteProcessMemory', 'VirtualProtect', 'VirtualProtectEx', 'VirtualAlloc', 'VirtualAllocEx', 'CreateRemoteThread', 'CreateRemoteThreadEx',
-        'LoadLibraryA', 'LoadLibraryW', 'LoadLibraryExA', 'LoadLibraryExW', 'GetProcAddress', 'OpenProcess', 'CreateProcessW', 'CreateProcessA', 'CreateProcessInternalW', 'GetModuleHandleW')
-    'kernel32.dll'   = @('ReadProcessMemory', 'WriteProcessMemory', 'VirtualProtect', 'VirtualProtectEx', 'VirtualAlloc', 'VirtualAllocEx', 'CreateRemoteThread', 'CreateRemoteThreadEx',
-        'LoadLibraryA', 'LoadLibraryW', 'LoadLibraryExA', 'LoadLibraryExW', 'GetProcAddress', 'OpenProcess', 'CreateProcessW', 'CreateProcessA')
-    'user32.dll'     = @('SetWindowsHookExA', 'SetWindowsHookExW', 'GetAsyncKeyState', 'GetKeyState', 'SendInput', 'SetWindowDisplayAffinity', 'GetWindowDisplayAffinity', 'FindWindowW', 'EnumWindows')
-    'amsi.dll'       = @('AmsiScanBuffer', 'AmsiScanString', 'AmsiInitialize', 'AmsiOpenSession')
-}
-
-# ============================================================================ HELPERS
-function Get-Indicator {
-    param([string]$Text)
-    if ([string]::IsNullOrWhiteSpace($Text)) { return $null }
-    $l = $Text.ToLower()
-    foreach ($k in $script:Indicators) {
-        if ($k -eq 'loader' -and $l -match '(download|upload|bootload|workload|dataload)er') { continue }
-        if ($k.Length -le 4) {
-            if ($l -match ('(^|[\\_\s\-\.])' + [regex]::Escape($k) + '($|[\\_\s\-\.])')) { return $k }
-        } elseif ($l.Contains($k)) { return $k }
-    }
-    return $null
-}
-
-function Test-TrustedDir {
-    param([string]$Path)
-    if ([string]::IsNullOrWhiteSpace($Path)) { return $true }
-    $p = $Path.ToLower().Replace('/', '\')
-    foreach ($d in @($env:SystemRoot, $env:ProgramFiles, ${env:ProgramFiles(x86)})) {
-        if ($d -and $p.StartsWith($d.ToLower() + '\')) { return $true }
-    }
-    return $false
-}
-
-function Test-UserlandPath {
-    param([string]$Path)
-    if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
-    return ($Path.ToLower().Replace('/', '\') -match '\\(downloads|desktop|temp)\\')
-}
-
-$script:SigCache = @{}
-function Get-SigInfo {
-    param([string]$Path)
-    if ($script:SigCache.ContainsKey($Path)) { return $script:SigCache[$Path] }
-    $info = @{ Status = 'Unknown'; Subject = '' }
-    try {
-        $sig = Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop
-        $info.Status = [string]$sig.Status
-        if ($sig.SignerCertificate) { $info.Subject = [string]$sig.SignerCertificate.Subject }
-    } catch {}
-    $script:SigCache[$Path] = $info
-    return $info
-}
-
-function Get-BootTime { try { (Get-CimInstance Win32_OperatingSystem).LastBootUpTime } catch { $null } }
-function Get-LogonTime {
-    try { $e = Get-Process -Name explorer | Sort-Object StartTime | Select-Object -First 1; if ($e.StartTime) { return $e.StartTime } } catch {}
-    $b = Get-BootTime; if ($b) { return $b }
-    return (Get-Date).AddHours(-12)
-}
-
-function Get-ExampleText {
-    param([string[]]$Items, [int]$Max = 3)
-    $s = ($Items | Select-Object -First $Max) -join ', '
-    if ($Items.Count -gt $Max) { $s += ", +$($Items.Count - $Max) more" }
-    return $s
-}
-
-# A file named software.exe / upgrade.exe inside a Downloads folder is flagged.
-function Test-FlaggedDownload {
-    param([string]$Path)
-    if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
-    $norm = $Path.Replace('/', '\')
-    $leaf = $norm.Substring($norm.LastIndexOf('\') + 1).ToLower()
-    if ($script:FlaggedDownloads -contains $leaf -and $norm.ToLower() -match '\\downloads\\') {
-        return "FAILURE: Flagged file '$leaf' present in Downloads -> $Path"
-    }
-    return $null
-}
-
-# An official Windows executable name must be in a Windows system location and validly signed by Microsoft.
-# Returns a finding string, or $null when the file is genuine.
-function Test-OfficialExe {
-    param([string]$Name, [string]$Path)
-    if ([string]::IsNullOrWhiteSpace($Name) -or [string]::IsNullOrWhiteSpace($Path)) { return $null }
-    if (-not $script:OfficialWinExe.Contains($Name)) { return $null }
-    $goodDir = ($Path.Replace('/', '\') -match $script:OfficialDirRx)
-    $status = 'Missing'; $isMs = $false
-    if (Test-Path -LiteralPath $Path -PathType Leaf) {
-        $s = Get-SigInfo -Path $Path
-        $status = $s.Status
-        $isMs = ($s.Status -eq 'Valid' -and $s.Subject -match 'Microsoft')
-    }
-    if (-not $goodDir) { return "FAILURE: Official Windows file name '$Name' outside system folders (possible impostor, signature: $status) -> $Path" }
-    if ($status -ne 'Missing' -and -not $isMs) { return "FAILURE: Official Windows file '$Name' lacks a valid Microsoft signature ($status) -> $Path" }
-    return $null
-}
-
-# Fast, time-budgeted file-name search (depth-limited, skips junctions and cache-heavy folders).
-function Find-NamedFiles {
-    param([string[]]$Roots, $Names, [int]$MaxDepth = 3, [int]$BudgetSec = 30)
-    $sw = [Diagnostics.Stopwatch]::StartNew()
-    $found = New-Object 'System.Collections.Generic.List[string]'
-    $skip = '(?i)^(node_modules|\.git|winsxs|windowsapps|packages|npm-cache|code cache|gpucache|cache)$'
-    $stack = New-Object 'System.Collections.Generic.Stack[object]'
-    foreach ($r in $Roots) { if ($r -and (Test-Path -LiteralPath $r)) { $stack.Push(@($r, 0)) } }
-    while ($stack.Count -gt 0 -and $sw.Elapsed.TotalSeconds -lt $BudgetSec) {
-        $cur = $stack.Pop(); $dir = [string]$cur[0]; $d = [int]$cur[1]
-        try { foreach ($f in [IO.Directory]::EnumerateFiles($dir)) { if ($Names.Contains([IO.Path]::GetFileName($f))) { $found.Add($f) } } } catch {}
-        if ($d -lt $MaxDepth) {
+            $timestamp = Get-Date -Format "HH:mm:ss"
+            $hash = ""
             try {
-                foreach ($sub in [IO.Directory]::EnumerateDirectories($dir)) {
-                    if ([IO.Path]::GetFileName($sub) -match $skip) { continue }
-                    if (([IO.File]::GetAttributes($sub) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
-                    $stack.Push(@($sub, ($d + 1)))
+                if ($procPath -and (Test-Path $procPath -ErrorAction SilentlyContinue)) {
+                    $hash = (Get-FileHash $procPath -Algorithm MD5 -ErrorAction SilentlyContinue).Hash
                 }
-            } catch {}
+            } catch { }
+
+            $sessionNewProcesses++
+            Write-Host "[$timestamp] NEW PROCESS" -ForegroundColor Red -NoNewline
+            Write-Host " | Name: " -NoNewline
+            Write-Host $proc.ProcessName -ForegroundColor Yellow -NoNewline
+            Write-Host " | PID: $($proc.Id)" -ForegroundColor White
+            if ($procPath) { Write-Host "          Path: $procPath" -ForegroundColor DarkYellow }
+            else { Write-Host "          Path: (access denied or unknown)" -ForegroundColor Red }
+            if ($hash) { Write-Host "          MD5:  $hash" -ForegroundColor DarkCyan }
+            try {
+                $start = $proc.StartTime
+                if ($start) { Write-Host "          Started: $start" -ForegroundColor DarkGray }
+            } catch { }
+            try {
+                $cim = Get-CimInstance Win32_Process -Filter "ProcessId = $($proc.Id)" -ErrorAction SilentlyContinue
+                if ($cim -and $cim.ParentProcessId) { Write-Host "          Parent PID: $($cim.ParentProcessId)" -ForegroundColor DarkGray }
+                if ($cim -and $cim.CommandLine) { Write-Host "          CmdLine: $($cim.CommandLine)" -ForegroundColor DarkGray }
+            } catch { }
+
+            $known[$proc.Id] = $proc.ProcessName
         }
     }
-    return $found.ToArray()
+
+    $currentIds = $current | Select-Object -ExpandProperty Id
+    $deadIds = @($known.Keys | Where-Object { $_ -notin $currentIds })
+    foreach ($id in $deadIds) { $known.Remove($id) }
 }
 
-# Fast, time-budgeted folder-name search for indicator keywords.
-function Find-IndicatorFolders {
-    param([string[]]$Roots, [int]$MaxDepth = 2, [int]$BudgetSec = 20)
-    $sw = [Diagnostics.Stopwatch]::StartNew()
-    $found = New-Object 'System.Collections.Generic.List[string]'
-    $skip = '(?i)^(node_modules|\.git|winsxs|windowsapps|packages|npm-cache|code cache|gpucache|cache)$'
-    $stack = New-Object 'System.Collections.Generic.Stack[object]'
-    foreach ($r in $Roots) { if ($r -and (Test-Path -LiteralPath $r)) { $stack.Push(@($r, 0)) } }
-    while ($stack.Count -gt 0 -and $sw.Elapsed.TotalSeconds -lt $BudgetSec) {
-        $cur = $stack.Pop(); $dir = [string]$cur[0]; $d = [int]$cur[1]
-        if ($d -ge $MaxDepth + 1) { continue }
-        try {
-            foreach ($sub in [IO.Directory]::EnumerateDirectories($dir)) {
-                $leaf = [IO.Path]::GetFileName($sub)
-                if ($leaf -match $skip) { continue }
-                if (([IO.File]::GetAttributes($sub) -band [IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
-                if (Get-Indicator $leaf) { $found.Add($sub) }
-                if ($d -lt $MaxDepth) { $stack.Push(@($sub, ($d + 1))) }
-            }
-        } catch {}
-    }
-    return $found.ToArray()
-}
-
-# One DLL/EXE loaded into the Roblox client. Returns $null when it is acceptable.
-function Test-LoadedModule {
-    param([string]$File)
-    $kw = Get-Indicator $File
-    $tag = if ($kw) { " [match: $kw]" } else { '' }
-    $s = Get-SigInfo -Path $File
-    if ($s.Status -ne 'Valid') {
-        $e = [TCAR.Native]::Entropy($File)
-        return "FAILURE: Unsigned module$tag loaded in client ($($s.Status), entropy $e) -> $File"
-    }
-    if ($kw) { return "FAILURE: Module matches unauthorized-software indicator [$kw] -> $File" }
-    if (Test-UserlandPath $File) { return "WARNING: Signed module loaded from a user folder -> $File" }
-    return $null
-}
-
-# One process record. Returns $null when it is acceptable.
-function Test-ProcessRecord {
-    param([string]$Name, [string]$Path)
-    if ($Path) {
-        $nl = $Name.ToLower()
-        if ($script:MasqueradePaths.ContainsKey($nl)) {
-            $ok = $false
-            foreach ($suf in $script:MasqueradePaths[$nl]) { if ($Path.ToLower().EndsWith($suf)) { $ok = $true } }
-            if (-not $ok) { return "FAILURE: System process name '$Name' running from a non-standard path -> $Path" }
-        }
-        $imp = Test-OfficialExe -Name $Name -Path $Path
-        if ($imp) { return $imp }
-        $fd = Test-FlaggedDownload -Path $Path
-        if ($fd) { return $fd }
-    }
-    $kw = Get-Indicator $Name
-    if (-not $kw -and $Path -and -not (Test-TrustedDir $Path)) { $kw = Get-Indicator $Path }
-    if ($Path -and (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        $userland = Test-UserlandPath $Path
-        if ($kw -or $userland) {
-            $s = Get-SigInfo -Path $Path
-            if ($s.Status -ne 'Valid') {
-                return "FAILURE: Unsigned process match '$Name' ($($s.Status)) -> $Path"
-            }
-        }
-    }
-    return $null
-}
-```[cite: 1]
+Write-Host ""
+Write-Host "=============================================" -ForegroundColor Cyan
+Write-Host "              SESSION SCORE                  " -ForegroundColor Cyan
+Write-Host "=============================================" -ForegroundColor Cyan
+$score = 100
+$score -= ($sessionNewProcesses * 2)
+$score -= ($sessionMemorySpikes * 15)
+$score -= ($sessionVulnDriverLoads * 30)
+if ($score -lt 0) { $score = 0 }
+Write-Host "New processes this session     : $sessionNewProcesses" -ForegroundColor White
+Write-Host "Memory spikes this session    : $sessionMemorySpikes" -ForegroundColor $(if ($sessionMemorySpikes -gt 0) { "Red" } else { "Green" })
+Write-Host "Vuln driver loaded (ring 0)   : $sessionVulnDriverLoads" -ForegroundColor $(if ($sessionVulnDriverLoads -gt 0) { "Red" } else { "Green" })
+Write-Host "SCORE: $score / 100" -ForegroundColor $(if ($score -ge 80) { "Green" } elseif ($score -ge 50) { "Yellow" } else { "Red" })
+Write-Host "=============================================" -ForegroundColor Cyan
